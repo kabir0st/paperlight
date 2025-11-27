@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Gentle Page PDF",
+  "name": "Banana Gentle PDF Color Changer",
   "version": "1.0",
   "description": "Converts PDF to readable paper-like texture and color, leaving images intact.",
   "permissions": [

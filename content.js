@@ -25,10 +25,34 @@ function applyStyles(settings) {
     }
 }
 
+// Inject SVG Filters
+function injectSvgFilters() {
+    if (document.getElementById('gentle-page-pdf-filters')) return;
+
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.id = 'gentle-page-pdf-filters';
+    svg.style.display = 'none';
+    svg.innerHTML = `
+    <defs>
+      <!-- Dark Mode Filter: Maps White to Charcoal, Black to Cream -->
+      <filter id="gentle-dark-mode">
+        <feColorMatrix type="matrix" values="
+          -0.85 0 0 0 0.95
+          0 -0.85 0 0 0.95
+          0 0 -0.85 0 0.95
+          0 0 0 1 0
+        "/>
+      </filter>
+    </defs>
+  `;
+    document.body.appendChild(svg);
+}
+
 // Initialize
 chrome.storage.sync.get(['isEnabled', 'theme'], (settings) => {
     if (isPdf()) {
         console.log('Gentle Page PDF: PDF detected');
+        injectSvgFilters();
         applyStyles(settings);
     }
 });
@@ -37,6 +61,7 @@ chrome.storage.sync.get(['isEnabled', 'theme'], (settings) => {
 chrome.storage.onChanged.addListener((changes, namespace) => {
     if (namespace === 'sync') {
         chrome.storage.sync.get(['isEnabled', 'theme'], (settings) => {
+            injectSvgFilters();
             applyStyles(settings);
         });
     }

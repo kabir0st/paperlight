@@ -7,18 +7,12 @@
   --gentle-text-dark: #e8e8e8;
 }
 
-/* Light Mode - Softer, warmer, easy on eyes */
+/* Light Mode - Use Multiply Overlay for Paper Effect (Preserves Text Sharpness & Images) */
 .gentle-page-pdf-enabled.gentle-page-pdf-light embed[type="application/pdf"] {
-    filter: sepia(0.4) contrast(0.85) brightness(0.9) saturate(0.8) !important;
+    filter: none !important; /* No filter on embed, rely on overlay */
 }
 
-/* Dark Mode - Less intense contrast, softer darks */
-.gentle-page-pdf-enabled.gentle-page-pdf-dark embed[type="application/pdf"] {
-    filter: invert(0.85) hue-rotate(180deg) contrast(0.8) brightness(0.85) !important;
-}
-
-/* Texture Overlay */
-.gentle-page-pdf-enabled body::before {
+.gentle-page-pdf-enabled.gentle-page-pdf-light body::before {
   content: "";
   position: fixed;
   top: 0;
@@ -26,15 +20,39 @@
   width: 100%;
   height: 100%;
   pointer-events: none;
-  z-index: 2147483647; /* Max z-index */
-  opacity: 0.1;
-  mix-blend-mode: multiply;
+  z-index: 2147483647;
+  
+  /* Paper Color (#f5f4f0) */
+  background-color: #f5f4f0;
+  
+  /* Texture */
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+  
+  /* Multiply blends the paper color with the white PDF background */
+  mix-blend-mode: multiply;
+  opacity: 1; /* Full opacity for the multiply effect */
+}
+
+
+/* Dark Mode - Use SVG Matrix for Precise Color Mapping */
+.gentle-page-pdf-enabled.gentle-page-pdf-dark embed[type="application/pdf"] {
+    filter: url(#gentle-dark-mode) !important;
 }
 
 .gentle-page-pdf-enabled.gentle-page-pdf-dark body::before {
-    mix-blend-mode: overlay;
-    opacity: 0.05;
+  content: "";
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 2147483647;
+  
+  /* Texture only for dark mode */
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+  opacity: 0.05;
+  mix-blend-mode: overlay;
 }
 
 /* Image preservation attempt (Note: This only works if we can access the internal DOM, which is restricted in Chrome's default viewer) */

@@ -34,6 +34,16 @@ function injectSvgFilters() {
     svg.style.display = 'none';
     svg.innerHTML = `
     <defs>
+      <!-- Light Mode Filter: Lifts blacks to dark gray for softer text -->
+      <filter id="gentle-light-mode">
+        <feColorMatrix type="matrix" values="
+          0.85 0 0 0 0.15
+          0 0.85 0 0 0.15
+          0 0 0.85 0 0.15
+          0 0 0 1 0
+        "/>
+      </filter>
+
       <!-- Dark Mode Filter: Maps White to Charcoal, Black to Cream -->
       <filter id="gentle-dark-mode">
         <feColorMatrix type="matrix" values="

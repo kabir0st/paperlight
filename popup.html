@@ -1,112 +1,43 @@
 <!DOCTYPE html>
 <html>
 <head>
+  <meta charset="UTF-8">
   <title>Gentle Page PDF</title>
-  <style>
-    body {
-      width: 250px;
-      padding: 15px;
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      background-color: #f5f4f0;
-      color: #2c2c2c;
-    }
-    h1 {
-      font-size: 16px;
-      margin-top: 0;
-      margin-bottom: 15px;
-      text-align: center;
-    }
-    .control-group {
-      margin-bottom: 15px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-    label {
-      font-size: 14px;
-    }
-    /* Toggle Switch */
-    .switch {
-      position: relative;
-      display: inline-block;
-      width: 40px;
-      height: 20px;
-    }
-    .switch input {
-      opacity: 0;
-      width: 0;
-      height: 0;
-    }
-    .slider {
-      position: absolute;
-      cursor: pointer;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background-color: #ccc;
-      transition: .4s;
-      border-radius: 20px;
-    }
-    .slider:before {
-      position: absolute;
-      content: "";
-      height: 16px;
-      width: 16px;
-      left: 2px;
-      bottom: 2px;
-      background-color: white;
-      transition: .4s;
-      border-radius: 50%;
-    }
-    input:checked + .slider {
-      background-color: #2196F3;
-    }
-    input:checked + .slider:before {
-      transform: translateX(20px);
-    }
-    /* Theme Buttons */
-    .theme-buttons {
-      display: flex;
-      justify-content: space-between;
-      margin-top: 10px;
-    }
-    .theme-btn {
-      flex: 1;
-      padding: 8px;
-      border: 1px solid #ccc;
-      background-color: white;
-      cursor: pointer;
-      font-size: 13px;
-      margin: 0 2px;
-      border-radius: 4px;
-    }
-    .theme-btn.active {
-      background-color: #2196F3;
-      color: white;
-      border-color: #2196F3;
-    }
-  </style>
+  <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <h1>Gentle Page PDF</h1>
-  
-  <div class="control-group">
-    <label for="enable-toggle">Enable</label>
-    <label class="switch">
-      <input type="checkbox" id="enable-toggle">
-      <span class="slider"></span>
-    </label>
-  </div>
-
-  <div class="control-group" style="display: block;">
-    <label>Theme</label>
-    <div class="theme-buttons">
-      <button class="theme-btn" id="light-btn" data-theme="light">Light</button>
-      <button class="theme-btn" id="dark-btn" data-theme="dark">Dark</button>
+  <div class="container">
+    <div class="header">
+      <div class="logo">
+        <img src="images/logo.png" alt="Logo">
+        <h1>Gentle Page PDF</h1>
+      </div>
     </div>
-  </div>
 
+    <div class="control-group">
+      <label for="enable-toggle" class="label-text">Enable</label>
+      <label class="switch">
+        <input type="checkbox" id="enable-toggle">
+        <span class="slider"></span>
+      </label>
+    </div>
+
+    <div class="control-group" style="flex-direction: column; align-items: flex-start; gap: 8px;">
+      <label class="label-text">Theme</label>
+      <div class="button-group">
+        <button class="group-btn" id="light-btn" data-theme="light">Light</button>
+        <button class="group-btn" id="dark-btn" data-theme="dark">Dark</button>
+      </div>
+    </div>
+
+    <div class="footer">
+      <a href="https://www.buymeacoffee.com/kabir0st" target="_blank" class="bmc-button">
+        <span class="bmc-emoji">🍕</span>
+        <span class="bmc-text">Buy me a pizza</span>
+      </a>
+    </div>
+
+  </div>
   <script src="popup.js"></script>
 </body>
 </html>

@@ -1,0 +1,183 @@
+:root {
+  --banana-yellow: #FFE135;
+  --banana-dark: #F4C430;
+  --banana-text: #4A3B22;
+  --banana-white: #FFFFFF;
+  --banana-bg: #FFFDF5;
+  --banana-shadow: rgba(244, 196, 48, 0.3);
+}
+
+body {
+  width: 300px; /* Slightly wider for better layout */
+  margin: 0;
+  padding: 0;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background-color: var(--banana-bg);
+  color: var(--banana-text);
+  overflow-x: hidden;
+}
+
+.container {
+  display: flex;
+  flex-direction: column;
+  padding: 20px;
+  box-sizing: border-box;
+  gap: 20px;
+}
+
+/* Header */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 5px;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.logo img {
+  width: 32px;
+  height: 32px;
+}
+
+.logo h1 {
+  font-size: 18px;
+  font-weight: 700;
+  margin: 0;
+  color: var(--banana-text);
+}
+
+/* Controls */
+.control-group {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.label-text {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--banana-text);
+}
+
+/* Toggle Switch - Banana Style */
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #E0E0E0; /* Neutral off state */
+  transition: .4s;
+  border-radius: 24px;
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  transition: .4s;
+  border-radius: 50%;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+input:checked + .slider {
+  background-color: var(--banana-yellow);
+}
+
+input:checked + .slider:before {
+  transform: translateX(20px);
+}
+
+/* Theme Buttons */
+.button-group {
+  display: flex;
+  background: #FFF9E0;
+  border-radius: 12px;
+  padding: 4px;
+  gap: 4px;
+  width: 100%;
+}
+
+.group-btn {
+  flex: 1;
+  border: none;
+  background: transparent;
+  padding: 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--banana-text);
+  transition: all 0.2s ease;
+  opacity: 0.6;
+}
+
+.group-btn:hover {
+  opacity: 1;
+  background: rgba(255, 225, 53, 0.2);
+}
+
+.group-btn.active {
+  background: var(--banana-yellow);
+  opacity: 1;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+/* Footer & BMC Button */
+.footer {
+  margin-top: 10px;
+  display: flex;
+  justify-content: center;
+  padding-top: 10px;
+  border-top: 1px solid rgba(74, 59, 34, 0.1);
+}
+
+.bmc-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background-color: #FFDD00;
+  color: #000000;
+  text-decoration: none;
+  padding: 8px 16px;
+  border-radius: 50px;
+  font-family: 'Cookie', cursive, sans-serif; /* Fallback */
+  font-weight: 600;
+  font-size: 14px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  transition: transform 0.2s ease;
+}
+
+.bmc-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0,0,0,0.15);
+}
+
+.bmc-emoji {
+  font-size: 18px;
+}

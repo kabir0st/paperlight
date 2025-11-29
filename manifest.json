@@ -4,8 +4,6 @@
   "version": "1.0",
   "description": "Converts PDF to readable paper-like texture and color, leaving images intact.",
   "permissions": [
-    "activeTab",
-    "scripting",
     "storage"
   ],
   "host_permissions": [

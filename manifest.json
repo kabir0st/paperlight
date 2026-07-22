@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Gentle Page PDF",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "description": "Comfortable paper-like reading for PDFs in Chrome — Paper, Sepia, and Dark themes with adjustable intensity, plus local read-aloud voices.",
   "permissions": [
     "storage",
@@ -31,6 +31,12 @@
       "matches": ["<all_urls>"],
       "js": ["content.js"],
       "all_frames": true,
+      "run_at": "document_end"
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["hud.js"],
+      "all_frames": false,
       "run_at": "document_end"
     }
   ],

@@ -8,6 +8,13 @@ export const REFERENCE_SAMPLE_RATE = 24000;
 
 const ASSET_CACHE = 'gentle-tts-assets';
 
+// Identity of an engine instance. The Fluent engine differs per device — the
+// WASM and WebGPU paths load different weight files — so they are cached and
+// reported separately. Doubles as the `ttsReady_<key>` flag the popup reads.
+export function engineKey(voice, device) {
+    return voice === 'fluent' ? `fluent_${device || 'wasm'}` : voice;
+}
+
 // Fetch with Cache API persistence, so voice files and reference audio
 // are only ever downloaded once.
 export async function cachedArrayBuffer(url) {

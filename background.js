@@ -1,12 +1,17 @@
 // Gentle Page PDF — service worker.
 // Owns default settings, the "Read aloud" context menu, the robot voice
-// (chrome.tts), and the offscreen document that runs the AI voices.
+// (chrome.tts), the offscreen document that runs the AI voices, and the
+// status fan-out to the popup, the toolbar badge and the in-page HUD.
 
 const DEFAULTS = {
     enabled: false,
     theme: 'paper', // 'paper' | 'sepia' | 'dark'
     intensity: 80, // 0–100
-    voice: 'robot' // 'robot' | 'fluent' | 'natural'
+    voice: 'robot', // 'robot' | 'fluent' | 'natural'
+    kokoroSpeaker: 'af_heart', // any id from src/kokoro-voices.js
+    kokoroSpeed: 1, // 0.5–2.0
+    kokoroDevice: 'wasm', // 'wasm' | 'webgpu'
+    volume: 100 // 0–100
 };
 
 const MENU_ID = 'gentle-read-aloud';
@@ -49,24 +54,40 @@ chrome.runtime.onInstalled.addListener(() => {
     chrome.action.setBadgeBackgroundColor({ color: '#2b2a26' });
 });
 
-chrome.contextMenus.onClicked.addListener((info) => {
+chrome.contextMenus.onClicked.addListener((info, tab) => {
     if (info.menuItemId === MENU_ID && info.selectionText) {
-        speak(info.selectionText);
+        speak(info.selectionText, tab?.id);
     } else if (info.menuItemId === MENU_PDF_ID && info.pageUrl) {
-        readPdf(info.pageUrl, 1);
+        readPdf(info.pageUrl, 1, tab?.id);
     }
 });
 
 // ---------------------------------------------------------------- speaking
 
-async function speak(text) {
-    const { voice } = await chrome.storage.sync.get({ voice: DEFAULTS.voice });
+// chrome.tts has no volume setter for a queued utterance, so the robot
+// voice picks the volume up per utterance from here.
+let robotVolume = 1;
+
+chrome.storage.onChanged.addListener((changes, namespace) => {
+    if (namespace === 'sync' && changes.volume) {
+        robotVolume = (Number(changes.volume.newValue) || 0) / 100;
+    }
+});
+
+async function speak(text, tabId) {
+    const { voice, volume } = await chrome.storage.sync.get({
+        voice: DEFAULTS.voice,
+        volume: DEFAULTS.volume
+    });
+    robotVolume = volume / 100;
     await stopAll();
-    setStatus({ phase: 'starting', voice });
+    await setTtsTab(tabId);
+    setStatus({ phase: 'starting', voice }, { paused: false });
     if (voice === 'robot') {
         setStatus({ phase: 'speaking', voice: 'robot' });
         chrome.tts.speak(text, {
             enqueue: false,
+            volume: robotVolume,
             onEvent: (event) => {
                 if (['end', 'interrupted', 'cancelled', 'error'].includes(event.type)) {
                     setStatus({ phase: 'idle' });
@@ -84,10 +105,15 @@ async function speak(text) {
 // Whole-document reading. Text extraction always happens in the offscreen
 // document (pdf.js); for the robot voice it streams pages back here and
 // chrome.tts queues them.
-async function readPdf(url, fromPage) {
-    const { voice } = await chrome.storage.sync.get({ voice: DEFAULTS.voice });
+async function readPdf(url, fromPage, tabId) {
+    const { voice, volume } = await chrome.storage.sync.get({
+        voice: DEFAULTS.voice,
+        volume: DEFAULTS.volume
+    });
+    robotVolume = volume / 100;
     await stopAll();
-    setStatus({ phase: 'starting', voice });
+    await setTtsTab(tabId);
+    setStatus({ phase: 'starting', voice }, { paused: false });
     await ensureOffscreen();
     chrome.runtime
         .sendMessage({ target: 'tts-offscreen', cmd: 'read-pdf', url, fromPage, voice })
@@ -99,6 +125,22 @@ async function stopAll() {
     if (await hasOffscreen()) {
         chrome.runtime.sendMessage({ target: 'tts-offscreen', cmd: 'stop' }).catch(() => {});
     }
+}
+
+// Pause/resume the current utterance. chrome.tts has its own pair; the AI
+// voices suspend the offscreen AudioContext, which also stalls synthesis.
+async function setPaused(paused) {
+    const state = await currentStatus();
+    if (!state || state.phase === 'idle' || state.phase === 'error') return;
+    if (state.voice === 'robot') {
+        if (paused) chrome.tts.pause();
+        else chrome.tts.resume();
+    } else if (await hasOffscreen()) {
+        chrome.runtime
+            .sendMessage({ target: 'tts-offscreen', cmd: paused ? 'pause' : 'resume' })
+            .catch(() => {});
+    }
+    setStatus(state, { paused });
 }
 
 // ------------------------------------------------------------- offscreen
@@ -129,11 +171,41 @@ async function ensureOffscreen() {
 
 // ---------------------------------------------------------------- status
 
+// The service worker can be torn down between two status updates, so the
+// live state lives in session storage and is lazily restored here.
+let lastStatus = null;
+let ttsTabId = null;
+let restoring = null;
+
+function restoreState() {
+    restoring ??= chrome.storage.session
+        .get(['ttsStatus', 'ttsTabId'])
+        .then((stored) => {
+            lastStatus ??= stored.ttsStatus ?? null;
+            ttsTabId ??= stored.ttsTabId ?? null;
+        })
+        .catch(() => {});
+    return restoring;
+}
+
+async function currentStatus() {
+    await restoreState();
+    return lastStatus;
+}
+
+// The tab that asked for the reading — where the HUD belongs.
+async function setTtsTab(tabId) {
+    await restoreState();
+    ttsTabId = tabId ?? null;
+    await chrome.storage.session.set({ ttsTabId }).catch(() => {});
+}
+
 // Mirror the latest TTS status into session storage so the popup can
-// render current state when it opens (the SW may restart at any time),
-// and reflect activity on the toolbar badge so there is feedback even
-// with the popup closed.
+// render current state when it opens, reflect activity on the toolbar
+// badge, and push it to the in-page HUD so there is feedback even with
+// the popup closed.
 function badgeFor(state) {
+    if (state?.paused) return '⏸';
     switch (state?.phase) {
         case 'downloading': return (state.pct ?? 0) + '%';
         case 'starting':
@@ -145,10 +217,26 @@ function badgeFor(state) {
     }
 }
 
-function setStatus(state) {
-    const stamped = { ...state, at: state.at || Date.now() };
+// paused is sticky: engine updates that arrive while paused keep the flag,
+// so resuming restores whatever phase was actually running.
+async function setStatus(state, { paused } = {}) {
+    await restoreState();
+    const terminal = ['idle', 'ready', 'error'].includes(state.phase);
+    const stamped = {
+        ...state,
+        paused: paused !== undefined ? paused : lastStatus?.paused === true && !terminal,
+        at: Date.now()
+    };
+    lastStatus = stamped;
     chrome.storage.session.set({ ttsStatus: stamped }).catch(() => {});
     chrome.action.setBadgeText({ text: badgeFor(stamped) }).catch(() => {});
+    // The popup listens for this rather than the raw engine status, so it
+    // also sees the states that originate here (the robot voice, pausing).
+    // sendMessage never delivers back to its sender, so this cannot loop.
+    chrome.runtime.sendMessage({ type: 'tts-state', state: stamped }).catch(() => {});
+    if (ttsTabId != null) {
+        chrome.tabs.sendMessage(ttsTabId, { type: 'gentle-hud', state: stamped }).catch(() => {});
+    }
 }
 
 // Robot whole-PDF reading: the offscreen document extracts pages and
@@ -156,6 +244,7 @@ function setStatus(state) {
 function robotSay(text, page, pages) {
     chrome.tts.speak(text, {
         enqueue: true,
+        volume: robotVolume,
         onEvent: (event) => {
             if (event.type === 'start') {
                 setStatus({ phase: 'speaking', voice: 'robot', detail: `page ${page} of ${pages}` });
@@ -174,7 +263,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return;
     }
     if (message?.type === 'tts-ready') {
-        chrome.storage.local.set({ [`ttsReady_${message.voice}`]: true }).catch(() => {});
+        chrome.storage.local.set({ [`ttsReady_${message.key || message.voice}`]: true }).catch(() => {});
         return;
     }
     if (message?.type === 'robot-say') {
@@ -183,17 +272,36 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
     if (message?.target !== 'tts-bg') return;
     switch (message.cmd) {
+        // The HUD asks for the current state on load, so a page reload
+        // mid-reading brings it back.
+        case 'hud-sync':
+            (async () => {
+                const state = await currentStatus();
+                const mine = sender.tab && sender.tab.id === ttsTabId;
+                // A live reading stamps a status every sentence, so anything
+                // older than a minute is a leftover, not something in flight.
+                const live =
+                    state && (state.paused === true || Date.now() - (state.at || 0) < 60_000);
+                sendResponse({ state: mine && live ? state : null });
+            })();
+            return true;
         case 'speak-test':
-            speak(TEST_SENTENCE);
+            speak(TEST_SENTENCE, message.tabId);
             break;
         case 'speak':
-            if (message.text) speak(message.text);
+            if (message.text) speak(message.text, message.tabId);
             break;
         case 'read-pdf':
-            if (message.url) readPdf(message.url, message.fromPage || 1);
+            if (message.url) readPdf(message.url, message.fromPage || 1, message.tabId);
+            break;
+        case 'pause':
+            setPaused(true);
+            break;
+        case 'resume':
+            setPaused(false);
             break;
         case 'stop':
-            stopAll().then(() => setStatus({ phase: 'idle' }));
+            stopAll().then(() => setStatus({ phase: 'idle' }, { paused: false }));
             break;
         case 'preload':
             ensureOffscreen().then(() => {

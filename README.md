@@ -16,10 +16,12 @@ A Chrome extension that makes PDFs comfortable to read. It applies gentle color 
 - **PDF-only by design** — the extension activates only on PDF documents and never touches normal websites
 - **Read aloud (local TTS)** — select text and right-click → *Read aloud*, or read the **whole PDF** from any page (popup button or right-click → *Read this PDF aloud*). Three voices:
   - **Robot** — the system voice via `chrome.tts`. No download, quality depends on your OS.
-  - **Fluent** — [Kokoro-82M](https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX), a small neural TTS model. **~90 MB** one-time download, runs on CPU (WASM) or WebGPU.
+  - **Fluent** — [Kokoro-82M](https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX), a small neural TTS model with 28 English speakers. **~90 MB** one-time download on CPU (WASM); the optional WebGPU engine is faster but loads full-precision weights (~310 MB).
   - **Natural** — [Chatterbox](https://huggingface.co/onnx-community/chatterbox-ONNX) (0.5B), near-human quality. **~1.4 GB** one-time download, **requires WebGPU**.
-  - Model downloads are cached (Cache API), so each AI voice downloads once and then works offline. The popup shows download size, live progress, and a Ready badge per voice; the toolbar icon shows a badge (`42%` downloading, `…` generating, `▶` speaking) so you get feedback even with the popup closed.
+  - Model downloads are cached (Cache API), so each AI voice downloads once and then works offline. The popup shows download size, live progress, and a Ready badge per voice; the toolbar icon shows a badge (`42%` downloading, `…` generating, `▶` speaking, `⏸` paused) so you get feedback even with the popup closed.
   - Inference runs in a dedicated Web Worker, so the browser and popup stay fully responsive while downloading and speaking.
+- **In-page player** — Chrome closes the popup the moment you click the page, so read-aloud progress also appears in a small card docked in the corner of the tab you're reading, with **Pause** and **Stop**. It follows the Dark theme and disappears a moment after the reading ends.
+- **Voice options** (popup → *Voice options*) — pick any of Kokoro's 28 English speakers (American/British, female/male), set the speaking speed from 0.5× to 2×, choose CPU or WebGPU for the Fluent voice, and set the playback volume.
 - **Synced settings** — preferences are saved with `chrome.storage.sync` and follow your Chrome profile
 
 ## Installation
@@ -50,7 +52,8 @@ Settings apply immediately and persist across sessions.
 2. Click **Test voice** to hear it (AI voices download and cache on first use, with a progress bar)
 3. Select text in any PDF (or web page), right-click → **Read aloud**
 4. Or read the whole document: on a PDF tab the popup shows **Read this PDF** with a *from page* field (also available as right-click → **Read this PDF aloud**)
-5. **Stop** in the popup halts playback; the toolbar badge shows what's happening at any time
+5. Once reading starts, a small player appears in the corner of the page with **Pause** and **Stop** — it stays put when you click away, unlike the popup. The same controls are in the popup, and the toolbar badge shows what's happening at any time.
+6. Open **Voice options** in the popup to change the Fluent speaker, speed, engine (CPU/WebGPU), and volume. Speed and volume apply to the reading already in progress.
 
 ## How it works
 
@@ -67,7 +70,9 @@ Chrome renders PDFs in an out-of-process viewer, which rules out most page-styli
 - The **Robot** voice uses `chrome.tts` (your operating system's speech engine) straight from the service worker.
 - The AI voices run in an **offscreen document** that spawns a **dedicated Web Worker** for inference — extension pages share one renderer thread, so running models on it would freeze the popup; the worker keeps everything responsive. Text is split into sentences, synthesized chunk-by-chunk by [transformers.js](https://github.com/huggingface/transformers.js) (ONNX Runtime WASM/WebGPU), and streamed into the Web Audio API — sentence *n+1* is generated while sentence *n* plays, with ~30 s of audio buffered ahead as backpressure for long documents.
 - **Whole-PDF reading** fetches the PDF bytes and extracts text page-by-page with [pdf.js](https://mozilla.github.io/pdf.js/); for the Robot voice, pages stream to `chrome.tts` as queued utterances.
-- Model weights download from the Hugging Face Hub on first use and are stored in the browser's Cache API — nothing is re-downloaded afterwards, and no text or audio ever leaves your machine.
+- Model weights download from the Hugging Face Hub on first use and are stored in the browser's Cache API — nothing is re-downloaded afterwards, and no text or audio ever leaves your machine. Kokoro's speakers are separate ~0.5 MB style tensors, so switching speaker costs one small fetch, not a model reload; the WebGPU engine loads full-precision weights (~310 MB) rather than the CPU build's quantized ones (~90 MB), so the two are tracked as separate downloads.
+- The **in-page player** is a content script that stays inert until the service worker sends it a status update. Chromium applies a CSS `filter` to every descendant of the element it is set on, so an ordinary overlay would be inverted along with the page under the Dark theme; the player instead renders in the browser's **top layer** (the popover API), which is painted outside ancestor filter effects, inside a shadow root so no page stylesheet can reach it.
+- **Pause** suspends the offscreen `AudioContext`, which freezes the scheduled playback tail and the backpressure loops with it — so synthesis stops too, rather than racing ahead while you're paused. The Robot voice uses `chrome.tts.pause()`.
 - All executable code (transformers.js bundle, ONNX Runtime WASM, pdf.js) ships inside the extension, as Manifest V3 requires.
 
 ### Project structure
@@ -76,8 +81,10 @@ Chrome renders PDFs in an out-of-process viewer, which rules out most page-styli
 Banana-Gentle-PDF/
 ├── manifest.json    # Manifest V3 definition
 ├── content.js       # Detects PDFs, builds and injects the theme filters
-├── popup.html/css/js# Popup UI: themes, intensity, voice picker
-├── background.js    # Defaults, context menu, robot voice, offscreen lifecycle
+├── hud.js           # In-page read-aloud player (top layer + shadow DOM)
+├── popup.html/css/js# Popup UI: themes, intensity, voice picker, voice options
+├── background.js    # Defaults, context menu, robot voice, offscreen lifecycle,
+│                    # status fan-out to popup + badge + HUD
 ├── offscreen.html   # Offscreen document hosting playback + PDF extraction
 ├── offscreen.js     # BUILT coordinator bundle (pdf.js, playback, worker mgmt)
 ├── tts-worker.js    # BUILT inference worker bundle (transformers.js + engines)
@@ -85,6 +92,7 @@ Banana-Gentle-PDF/
 │   ├── offscreen-main.js    # Playback queue, pdf.js extraction, statuses
 │   ├── tts-worker.js        # Inference worker: model download + synthesis
 │   ├── kokoro-engine.js     # "Fluent" voice (Kokoro-82M)
+│   ├── kokoro-voices.js     # Speaker list, shared by the engine and popup
 │   ├── chatterbox-engine.js # "Natural" voice (Chatterbox 0.5B, WebGPU)
 │   ├── tts-common.js        # Caching, audio decode, sentence splitting
 │   └── vendor/phonemize.js  # Vendored from kokoro-js (Apache-2.0)
@@ -102,7 +110,7 @@ without Node).
 | Permission | Why |
 |---|---|
 | `storage` | Save and sync your theme, intensity, and voice preferences |
-| Host access (`<all_urls>`) | PDFs can live at any URL; the content script needs to load everywhere to detect them (it exits immediately on non-PDF pages) |
+| Host access (`<all_urls>`) | PDFs can live at any URL; the content scripts need to load everywhere to detect them (the theming one exits immediately on non-PDF pages, and the player stays inert until something is being read) |
 | `contextMenus` | The right-click **Read aloud** item on selected text |
 | `tts` | The Robot voice (system speech engine) |
 | `offscreen` | A hidden extension page that runs the AI voices and plays audio |

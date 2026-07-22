@@ -352,6 +352,109 @@ input[type='range']:focus-visible {
   font-weight: 600;
 }
 
+/* Voice options — collapsed by default so the popup stays compact */
+.voice-options {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--card);
+}
+
+.voice-options > summary {
+  padding: 7px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  cursor: pointer;
+  list-style: none;
+}
+
+.voice-options > summary::-webkit-details-marker {
+  display: none;
+}
+
+.voice-options > summary::after {
+  content: '＋';
+  float: right;
+  font-weight: 400;
+}
+
+.voice-options[open] > summary::after {
+  content: '−';
+}
+
+.voice-options > summary:hover {
+  color: var(--ink);
+}
+
+.voice-options > *:not(summary) {
+  padding: 0 10px;
+}
+
+.voice-options > *:last-child {
+  padding-bottom: 10px;
+}
+
+.opt-group[hidden] {
+  display: none;
+}
+
+.opt-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.opt-label {
+  flex: none;
+  width: 56px;
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+.opt-value {
+  flex: none;
+  width: 38px;
+  text-align: right;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-soft);
+}
+
+.opt-row select {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 6px;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.opt-row select:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+}
+
+.opt-row input[type='range'] {
+  margin: 0;
+}
+
+.opt-note {
+  margin: 8px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+
+.opt-note[hidden] {
+  display: none;
+}
+
 /* Download progress */
 .tts-progress-label {
   font-size: 11px;

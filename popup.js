@@ -18,10 +18,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const voiceRadios = Array.from(document.querySelectorAll('input[name="voice"]'));
     const voiceStates = {
         robot: document.querySelector('[data-state-for="robot"]'),
-        fluent: document.querySelector('[data-state-for="fluent"]'),
-        natural: document.querySelector('[data-state-for="natural"]')
+        fluent: document.querySelector('[data-state-for="fluent"]')
     };
-    const naturalRow = document.querySelector('.voice[data-voice="natural"]');
     const progressBox = document.getElementById('tts-progress');
     const progressLabel = document.getElementById('tts-progress-label');
     const progressFill = document.getElementById('tts-progress-fill');
@@ -43,11 +41,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const volumeValue = document.getElementById('volume-value');
 
     const DEFAULT_NOTE = ttsNote.innerHTML;
-    const VOICE_LABELS = { robot: 'Robot', fluent: 'Fluent', natural: 'Natural' };
+    const VOICE_LABELS = { robot: 'Robot', fluent: 'Fluent' };
     // The Fluent download depends on the engine: the WebGPU path needs the
     // fp32 weights, the CPU path the much smaller q8 ones.
     const FLUENT_SIZES = { wasm: '~90 MB', webgpu: '~310 MB' };
-    const NATURAL_SIZE = '~1.4 GB';
 
     version.textContent = 'v' + chrome.runtime.getManifest().version;
 
@@ -97,9 +94,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!Number.isFinite(intensity)) intensity = 80;
         intensity = Math.min(100, Math.max(0, intensity));
 
-        const voice = ['robot', 'fluent', 'natural'].includes(raw.voice)
-            ? raw.voice
-            : 'robot';
+        // 'natural' (Chatterbox) was removed in 2.4.0 — fall back to Fluent.
+        const voice = ['robot', 'fluent'].includes(raw.voice) ? raw.voice : 'robot';
 
         const kokoroSpeaker = KOKORO_VOICES.some((v) => v.id === raw.kokoroSpeaker)
             ? raw.kokoroSpeaker
@@ -277,8 +273,8 @@ document.addEventListener('DOMContentLoaded', () => {
         saveSoon({ volume });
     });
 
-    // WebGPU requirement for the Natural voice — the navigator.gpu object
-    // can exist with no usable adapter behind it, so actually ask for one.
+    // The WebGPU engine option — navigator.gpu can exist with no usable
+    // adapter behind it, so actually ask for one before offering it.
     if (navigator.gpu) {
         navigator.gpu.requestAdapter().then((adapter) => {
             if (!adapter) markNoWebGpu();
@@ -288,10 +284,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     function markNoWebGpu() {
         webgpuOk = false;
-        naturalRow.classList.add('unavailable');
-        voiceStates.natural.textContent = 'No WebGPU';
-        naturalRow.title = 'This browser has no WebGPU, which the Natural voice requires.';
-
         const webgpuOption = deviceSelect.querySelector('option[value="webgpu"]');
         webgpuOption.disabled = true;
         webgpuOption.textContent = 'WebGPU · unavailable';
@@ -332,16 +324,6 @@ document.addEventListener('DOMContentLoaded', () => {
             voiceStates.fluent.classList.remove('ready');
         }
 
-        if (!naturalRow.classList.contains('unavailable')) {
-            if (readyFlags.ttsReady_natural) {
-                voiceStates.natural.textContent = 'Ready';
-                voiceStates.natural.classList.add('ready');
-            } else {
-                voiceStates.natural.textContent = NATURAL_SIZE;
-                voiceStates.natural.classList.remove('ready');
-            }
-        }
-
         const needsDownload = device === 'webgpu' && !fluentReady;
         deviceNote.hidden = !needsDownload;
         if (needsDownload) {
@@ -353,7 +335,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function loadReadyFlags() {
         chrome.storage.local.get(
-            ['ttsReady_fluent', 'ttsReady_fluent_wasm', 'ttsReady_fluent_webgpu', 'ttsReady_natural'],
+            ['ttsReady_fluent', 'ttsReady_fluent_wasm', 'ttsReady_fluent_webgpu'],
             (flags) => {
                 readyFlags = flags;
                 renderReadyFlags();

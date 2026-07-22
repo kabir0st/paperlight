@@ -7,7 +7,7 @@ const DEFAULTS = {
     enabled: false,
     theme: 'paper', // 'paper' | 'sepia' | 'dark'
     intensity: 80, // 0–100
-    voice: 'robot', // 'robot' | 'fluent' | 'natural'
+    voice: 'robot', // 'robot' | 'fluent'
     kokoroSpeaker: 'af_heart', // any id from src/kokoro-voices.js
     kokoroSpeed: 1, // 0.5–2.0
     kokoroDevice: 'wasm', // 'wasm' | 'webgpu'
@@ -20,7 +20,35 @@ const TEST_SENTENCE =
     'This is your Gentle Page PDF reading voice. Select text in a PDF, ' +
     'right click, and choose Read aloud.';
 
-chrome.runtime.onInstalled.addListener(() => {
+// The "Natural" voice (Chatterbox) was dropped in 2.4.0 — a multi-gigabyte
+// download that needed WebGPU and could stall the browser. Reclaim its cached
+// weights, move anyone who had it selected onto Fluent, and drop the readiness
+// flags so the remaining voice re-verifies against what is really cached.
+async function removeNaturalVoice() {
+    chrome.storage.sync.get({ voice: DEFAULTS.voice }, ({ voice }) => {
+        if (voice === 'natural') chrome.storage.sync.set({ voice: 'fluent' });
+    });
+    chrome.storage.local.get(null, (all) => {
+        const stale = Object.keys(all).filter((key) => key.startsWith('ttsReady_'));
+        if (stale.length) chrome.storage.local.remove(stale);
+    });
+    try {
+        const cache = await caches.open('transformers-cache');
+        for (const request of await cache.keys()) {
+            if (request.url.includes('chatterbox-ONNX')) await cache.delete(request);
+        }
+        const assets = await caches.open('gentle-tts-assets');
+        for (const request of await assets.keys()) {
+            if (request.url.includes('chatterbox-ONNX')) await assets.delete(request);
+        }
+    } catch {
+        // No cache yet, or storage is unavailable — nothing to reclaim.
+    }
+}
+
+chrome.runtime.onInstalled.addListener((details) => {
+    if (details.reason === 'update') removeNaturalVoice();
+
     chrome.storage.sync.get(null, (existing) => {
         const missing = {};
         for (const [key, value] of Object.entries(DEFAULTS)) {
@@ -68,17 +96,31 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 // voice picks the volume up per utterance from here.
 let robotVolume = 1;
 
-chrome.storage.onChanged.addListener((changes, namespace) => {
-    if (namespace === 'sync' && changes.volume) {
-        robotVolume = (Number(changes.volume.newValue) || 0) / 100;
-    }
+// An offscreen document may only use chrome.runtime — not chrome.storage —
+// so the voice settings are read here and pushed to it with every command,
+// and again whenever they change so a reading in progress follows along.
+const VOICE_KEYS = ['kokoroSpeaker', 'kokoroSpeed', 'kokoroDevice', 'volume'];
+
+async function voiceSettings() {
+    const defaults = { voice: DEFAULTS.voice };
+    for (const key of VOICE_KEYS) defaults[key] = DEFAULTS[key];
+    return chrome.storage.sync.get(defaults);
+}
+
+chrome.storage.onChanged.addListener(async (changes, namespace) => {
+    if (namespace !== 'sync') return;
+    if (changes.volume) robotVolume = (Number(changes.volume.newValue) || 0) / 100;
+    if (!VOICE_KEYS.some((key) => changes[key])) return;
+    if (!(await hasOffscreen())) return;
+    const settings = await voiceSettings();
+    chrome.runtime
+        .sendMessage({ target: 'tts-offscreen', cmd: 'settings', settings })
+        .catch(() => {});
 });
 
 async function speak(text, tabId) {
-    const { voice, volume } = await chrome.storage.sync.get({
-        voice: DEFAULTS.voice,
-        volume: DEFAULTS.volume
-    });
+    const settings = await voiceSettings();
+    const { voice, volume } = settings;
     robotVolume = volume / 100;
     await stopAll();
     await setTtsTab(tabId);
@@ -97,7 +139,7 @@ async function speak(text, tabId) {
     } else {
         await ensureOffscreen();
         chrome.runtime
-            .sendMessage({ target: 'tts-offscreen', cmd: 'speak', text, voice })
+            .sendMessage({ target: 'tts-offscreen', cmd: 'speak', text, voice, settings })
             .catch(() => {});
     }
 }
@@ -106,17 +148,15 @@ async function speak(text, tabId) {
 // document (pdf.js); for the robot voice it streams pages back here and
 // chrome.tts queues them.
 async function readPdf(url, fromPage, tabId) {
-    const { voice, volume } = await chrome.storage.sync.get({
-        voice: DEFAULTS.voice,
-        volume: DEFAULTS.volume
-    });
+    const settings = await voiceSettings();
+    const { voice, volume } = settings;
     robotVolume = volume / 100;
     await stopAll();
     await setTtsTab(tabId);
     setStatus({ phase: 'starting', voice }, { paused: false });
     await ensureOffscreen();
     chrome.runtime
-        .sendMessage({ target: 'tts-offscreen', cmd: 'read-pdf', url, fromPage, voice })
+        .sendMessage({ target: 'tts-offscreen', cmd: 'read-pdf', url, fromPage, voice, settings })
         .catch(() => {});
 }
 
@@ -304,13 +344,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             stopAll().then(() => setStatus({ phase: 'idle' }, { paused: false }));
             break;
         case 'preload':
-            ensureOffscreen().then(() => {
-                chrome.runtime.sendMessage({
-                    target: 'tts-offscreen',
-                    cmd: 'preload',
-                    voice: message.voice
-                });
-            });
+            (async () => {
+                const settings = await voiceSettings();
+                await ensureOffscreen();
+                chrome.runtime
+                    .sendMessage({
+                        target: 'tts-offscreen',
+                        cmd: 'preload',
+                        voice: message.voice,
+                        settings
+                    })
+                    .catch(() => {});
+            })();
             break;
     }
     sendResponse({ ok: true });

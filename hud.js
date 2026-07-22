@@ -14,7 +14,7 @@
 // back to a normal fixed element plus a counter-filter that undoes the theme.
 
 const HOST_ID = 'gentle-page-pdf-hud';
-const VOICE_LABELS = { robot: 'Robot', fluent: 'Fluent', natural: 'Natural' };
+const VOICE_LABELS = { robot: 'Robot', fluent: 'Fluent' };
 const IDLE_HIDE_MS = 2500;
 
 const supportsPopover = typeof HTMLElement.prototype.showPopover === 'function';
@@ -331,7 +331,22 @@ chrome.storage.onChanged.addListener((changes, namespace) => {
     if (namespace === 'sync' && shown) applyTheme();
 });
 
-// Reloading the page mid-reading should bring the HUD back.
-send('hud-sync').then((response) => {
-    if (response?.state) render(response.state);
-});
+// Reloading the page mid-reading should bring the HUD back. This is the only
+// thing the script does unprompted, so it must not cost anything at startup:
+// a session restore loads every tab at once, and each message would wake the
+// service worker at the worst possible moment. Ask only for a tab the user is
+// actually looking at, and only once the page has gone idle.
+let syncedOnce = false;
+
+function syncIfVisible() {
+    if (syncedOnce || document.visibilityState !== 'visible') return;
+    syncedOnce = true;
+    const ask = () => send('hud-sync').then((response) => {
+        if (response?.state) render(response.state);
+    });
+    if (typeof requestIdleCallback === 'function') requestIdleCallback(ask, { timeout: 3000 });
+    else setTimeout(ask, 500);
+}
+
+syncIfVisible();
+document.addEventListener('visibilitychange', syncIfVisible);

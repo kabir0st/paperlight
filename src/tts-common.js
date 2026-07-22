@@ -1,11 +1,5 @@
 // Shared helpers for the TTS engines.
 
-// Default speaker for the "Natural" (Chatterbox) voice. Decoded on the
-// offscreen document (workers have no AudioContext) and handed to the worker.
-export const REFERENCE_VOICE_URL =
-    'https://huggingface.co/onnx-community/chatterbox-ONNX/resolve/main/default_voice.wav';
-export const REFERENCE_SAMPLE_RATE = 24000;
-
 const ASSET_CACHE = 'gentle-tts-assets';
 
 // Identity of an engine instance. The Fluent engine differs per device — the
@@ -15,8 +9,8 @@ export function engineKey(voice, device) {
     return voice === 'fluent' ? `fluent_${device || 'wasm'}` : voice;
 }
 
-// Fetch with Cache API persistence, so voice files and reference audio
-// are only ever downloaded once.
+// Fetch with Cache API persistence, so speaker files are only ever
+// downloaded once.
 export async function cachedArrayBuffer(url) {
     const cache = await caches.open(ASSET_CACHE);
     let response = await cache.match(url);
@@ -26,22 +20,6 @@ export async function cachedArrayBuffer(url) {
         await cache.put(url, response.clone());
     }
     return response.arrayBuffer();
-}
-
-// Decode an audio file (wav/mp3/...) to mono Float32Array at targetRate.
-export async function decodeAudio(arrayBuffer, targetRate) {
-    const probe = new AudioContext();
-    const decoded = await probe.decodeAudioData(arrayBuffer);
-    await probe.close();
-
-    const length = Math.ceil((decoded.duration + 0.01) * targetRate);
-    const offline = new OfflineAudioContext(1, length, targetRate);
-    const source = offline.createBufferSource();
-    source.buffer = decoded;
-    source.connect(offline.destination);
-    source.start();
-    const rendered = await offline.startRendering();
-    return rendered.getChannelData(0);
 }
 
 // Split text into speakable chunks: sentences, merged up to maxLen chars,

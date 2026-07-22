@@ -4,8 +4,7 @@
 // one renderer main thread — running inference there froze the popup.
 //
 // Protocol (single in-flight synthesize; the offscreen doc orchestrates):
-//   in : {cmd:'ensure', voice, device?, speaker?, referenceAudio?}
-//                                                 -> engine-ready | engine-error
+//   in : {cmd:'ensure', voice, device?, speaker?}  -> engine-ready | engine-error
 //   in : {cmd:'synthesize', id, voice, text, options?}   -> audio | synth-error
 //   out: {type:'download', voice, file, loaded, total, pct}  (progress)
 //
@@ -14,7 +13,6 @@
 
 import { env } from '@huggingface/transformers';
 import { KokoroEngine, KOKORO_SAMPLE_RATE } from './kokoro-engine.js';
-import { ChatterboxEngine, CHATTERBOX_SAMPLE_RATE } from './chatterbox-engine.js';
 import { engineKey } from './tts-common.js';
 
 // Worker location is chrome-extension://<id>/tts-worker.js — resolve the
@@ -22,7 +20,7 @@ import { engineKey } from './tts-common.js';
 env.backends.onnx.wasm.wasmPaths = new URL('vendor/', self.location.href).href;
 env.useBrowserCache = true;
 
-const SAMPLE_RATES = { fluent: KOKORO_SAMPLE_RATE, natural: CHATTERBOX_SAMPLE_RATE };
+const SAMPLE_RATES = { fluent: KOKORO_SAMPLE_RATE };
 const engines = {}; // engine key -> Promise<engine>
 
 function makeProgressTracker(voice) {
@@ -50,14 +48,15 @@ function makeProgressTracker(voice) {
     };
 }
 
-function getEngine(voice, { device, speaker, referenceAudio } = {}) {
+function getEngine(voice, { device, speaker } = {}) {
     const key = engineKey(voice, device);
     if (!engines[key]) {
         const progress_callback = makeProgressTracker(voice);
-        engines[key] =
-            voice === 'natural'
-                ? ChatterboxEngine.create({ referenceAudio, progress_callback })
-                : KokoroEngine.create({ device: device || 'wasm', speaker, progress_callback });
+        engines[key] = KokoroEngine.create({
+            device: device || 'wasm',
+            speaker,
+            progress_callback
+        });
         engines[key].catch(() => { delete engines[key]; });
     }
     return engines[key];

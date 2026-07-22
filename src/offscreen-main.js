@@ -7,14 +7,7 @@
 //   - broadcasts status for the popup, the in-page HUD and the badge.
 
 import * as pdfjs from 'pdfjs-dist';
-import {
-    cachedArrayBuffer,
-    decodeAudio,
-    engineKey,
-    splitSentences,
-    REFERENCE_VOICE_URL,
-    REFERENCE_SAMPLE_RATE
-} from './tts-common.js';
+import { engineKey, splitSentences } from './tts-common.js';
 import { DEFAULT_KOKORO_VOICE } from './kokoro-voices.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL('vendor/pdf.worker.min.mjs');
@@ -23,21 +16,25 @@ const MAX_BUFFERED_SECONDS = 30; // synth backpressure for long documents
 
 // ---------------------------------------------------------------- settings
 
-// Voice tuning lives in chrome.storage.sync next to the theme settings, and
-// is kept live here so speaker/speed/volume changes reach the reading already
-// in progress. The device is the exception — it identifies the loaded engine,
-// so a session keeps whichever one it started on.
-const VOICE_SETTINGS = {
+// Voice tuning lives in chrome.storage.sync, but an offscreen document may
+// only use chrome.runtime — no chrome.storage — so the service worker owns
+// the settings and pushes them here with every command, plus a 'settings'
+// message whenever they change. That keeps speaker/speed/volume live for the
+// reading already in progress. The device is the exception: it identifies the
+// loaded engine, so a session keeps whichever one it started on.
+let settings = {
     kokoroSpeaker: DEFAULT_KOKORO_VOICE,
     kokoroSpeed: 1,
     kokoroDevice: 'wasm',
     volume: 100
 };
 
-let settings = { ...VOICE_SETTINGS };
-
-async function loadSettings() {
-    settings = await chrome.storage.sync.get(VOICE_SETTINGS);
+function applySettings(incoming) {
+    if (!incoming) return settings;
+    settings = { ...settings, ...incoming };
+    if (incoming.volume !== undefined && session) {
+        session.setVolume((Number(incoming.volume) || 0) / 100);
+    }
     return settings;
 }
 
@@ -106,6 +103,13 @@ function getWorker() {
             const error = new Error(event.message || 'TTS worker crashed');
             for (const p of pending.values()) p.reject(error);
             pending.clear();
+            // With nothing in flight the rejections above reach no one, so
+            // report it directly — otherwise a crashed worker just looks like
+            // a reading that never continues.
+            setStatus({
+                phase: 'error',
+                error: `The speech engine stopped: ${error.message}`
+            });
         };
     }
     return worker;
@@ -115,11 +119,6 @@ async function ensureVoice(voice, options) {
     const key = engineKey(voice, options.device);
     if (readyEngines.has(key)) return;
     const w = getWorker();
-    let referenceAudio;
-    if (voice === 'natural') {
-        const buffer = await cachedArrayBuffer(REFERENCE_VOICE_URL);
-        referenceAudio = await decodeAudio(buffer, REFERENCE_SAMPLE_RATE);
-    }
     await new Promise((resolve, reject) => {
         const onMessage = ({ data }) => {
             if (data.type === 'engine-ready' && data.voice === voice) {
@@ -131,10 +130,7 @@ async function ensureVoice(voice, options) {
             }
         };
         w.addEventListener('message', onMessage);
-        w.postMessage(
-            { cmd: 'ensure', voice, ...options, referenceAudio },
-            referenceAudio ? [referenceAudio.buffer] : []
-        );
+        w.postMessage({ cmd: 'ensure', voice, ...options });
     });
     readyEngines.add(key);
     chrome.runtime.sendMessage({ type: 'tts-ready', voice, key }).catch(() => {});
@@ -172,8 +168,11 @@ class PlaybackSession {
             this.gain.gain.value = this.volume;
             this.gain.connect(this.ctx.destination);
             this.tail = 0;
-            // Pause pressed before the first chunk was ready.
+            // A context can be handed back suspended. Everything downstream
+            // waits on currentTime, which a suspended context never advances,
+            // so an unresumed context would look exactly like a hang.
             if (this.paused) this.ctx.suspend().catch(() => {});
+            else this.ctx.resume().catch(() => {});
         }
         const buffer = this.ctx.createBuffer(1, samples.length, sampleRate);
         buffer.copyToChannel(samples, 0);
@@ -215,9 +214,25 @@ class PlaybackSession {
         }
     }
 
+    // Waits for the scheduled audio to drain. A context that is not running
+    // never will, so retry the resume and then give up loudly rather than
+    // spinning on a clock that is standing still.
     async waitUntilDone() {
+        let stalledMs = 0;
         while (!this.aborted && (this.paused || (this.ctx && this.ctx.currentTime < this.tail))) {
             await new Promise((r) => setTimeout(r, 200));
+            if (this.paused || !this.ctx) continue;
+            if (this.ctx.state === 'running') {
+                stalledMs = 0;
+                continue;
+            }
+            this.ctx.resume().catch(() => {});
+            stalledMs += 200;
+            if (stalledMs > 3000) {
+                throw new Error(
+                    `Audio playback did not start (the audio context is ${this.ctx.state}).`
+                );
+            }
         }
     }
 
@@ -237,8 +252,11 @@ class PlaybackSession {
 async function speakChunks(mySession, voice, chunks, device, describe) {
     for (let i = 0; i < chunks.length; i++) {
         if (mySession.aborted) return;
+        // Report what is actually happening: with audio still buffered we are
+        // generating ahead while it plays, but with the buffer empty the user
+        // is waiting on synthesis — saying "speaking" there reads as a hang.
         setStatus({
-            phase: mySession.started ? 'speaking' : 'generating',
+            phase: mySession.bufferedSeconds() > 0.25 ? 'speaking' : 'generating',
             voice,
             detail: describe(i)
         });
@@ -258,7 +276,6 @@ async function speakChunks(mySession, voice, chunks, device, describe) {
 
 async function speak(text, voice) {
     stopPlayback();
-    await loadSettings();
     const device = settings.kokoroDevice;
     const mySession = (session = new PlaybackSession(settings.volume / 100));
     try {
@@ -287,7 +304,6 @@ async function extractPageText(pdf, pageNumber) {
 
 async function readPdf(url, fromPage, voice) {
     stopPlayback();
-    await loadSettings();
     const device = settings.kokoroDevice;
     const mySession = (session = new PlaybackSession(settings.volume / 100));
     try {
@@ -344,23 +360,15 @@ function stopPlayback() {
     pending.clear();
 }
 
-// Keep the live settings in step; volume applies to whatever is already
-// playing, not just the next utterance.
-chrome.storage.onChanged.addListener((changes, namespace) => {
-    if (namespace !== 'sync') return;
-    for (const key of Object.keys(VOICE_SETTINGS)) {
-        if (changes[key]) settings[key] = changes[key].newValue;
-    }
-    if (changes.volume && session) {
-        session.setVolume((Number(changes.volume.newValue) || 0) / 100);
-    }
-});
-
 // ---------------------------------------------------------------- messages
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message?.target !== 'tts-offscreen') return;
+    // Every command carries the current settings from the service worker.
+    applySettings(message.settings);
     switch (message.cmd) {
+        case 'settings':
+            break; // applySettings above did the work
         case 'speak':
             speak(message.text, message.voice);
             break;
@@ -369,7 +377,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             break;
         case 'preload':
             (async () => {
-                await loadSettings();
                 try {
                     setStatus({ phase: 'loading', voice: message.voice });
                     await ensureVoice(message.voice, engineOptions(message.voice));

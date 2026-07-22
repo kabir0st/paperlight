@@ -143,6 +143,10 @@ console.log('hero.png');
 
 // ------------------------------------------------------------ reading card
 const card = await browser.newPage();
+// hud.js mirrors the stored reading theme, so this comes out as the dark card
+// because the popup step above saved theme: 'dark'. Change that to 'paper' if
+// you want the cream variant.
+//
 // The HUD stops its pulsing dot under reduced-motion, which keeps the capture
 // from catching the dot mid-fade.
 await card.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);

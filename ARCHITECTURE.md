@@ -3,6 +3,33 @@
 Implementation notes for anyone reading or modifying the code. The
 [README](README.md) covers what the extension does; this covers how.
 
+## Install from source
+
+Most people should just [install from the Chrome Web Store](https://chromewebstore.google.com/detail/banana-gentle-pdf-color-c/nohjlbaknldmblndcecdimedeogfojfc).
+To run the checkout instead:
+
+```bash
+git clone https://github.com/kabir0st/paperlight.git
+```
+
+1. Open `chrome://extensions` in Chrome
+2. Turn on **Developer mode** (top-right toggle)
+3. Click **Load unpacked** and pick the `paperlight` folder
+4. Pin Paperlight from the puzzle-piece menu so it is one click away
+
+Reading PDFs saved on your computer? Open the extension's details page and switch
+on **Allow access to file URLs**.
+
+## Permissions, and why
+
+| Permission | Why |
+|---|---|
+| `storage` | Remember your theme, intensity, and voice |
+| Host access (`<all_urls>`) | PDFs live at unpredictable URLs, so the detector has to be allowed to load anywhere. It exits immediately on anything that is not a PDF |
+| `contextMenus` | The right-click **Read aloud** item |
+| `tts` | The Robot voice |
+| `offscreen` | A hidden page that runs the Fluent voice and plays audio |
+
 ## Theming Chrome's PDF viewer
 
 Chrome renders PDFs in an out-of-process viewer, which rules out most

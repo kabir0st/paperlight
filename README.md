@@ -8,7 +8,7 @@ A Chrome extension that makes PDFs comfortable to read. It applies gentle color 
 
 > Everything runs locally. No account, no telemetry, no server — the PDF text
 > never leaves your machine, and after the one-time voice download the
-> read-aloud works with the network off.
+> read-aloud works with the network off. See [PRIVACY.md](PRIVACY.md).
 
 ## Features
 
@@ -139,6 +139,17 @@ without Node).
 - **Read-aloud does nothing on a PDF** — if the pages are scans, there is no selectable text to read and the extension now says so. Try selecting text manually: if you cannot select it, neither can the extension.
 - **The engine picker / my speaker is gone** — the experimental WebGPU engine was removed in 2.7.0 (it cost a second 155–310 MB download and produced garbled speech on some GPUs), and the speaker list narrowed to four. Updating reclaims the WebGPU weights and moves you to **Nicole**.
 - **A "Natural" voice used to be here** — Chatterbox (0.5B, ~1.4 GB, WebGPU-only) was removed in 2.4.0: a multi-gigabyte download that could stall the browser. Updating evicts its cached weights and moves you to Fluent.
+
+## Privacy
+
+No accounts, no analytics, no servers. The full policy — every stored value,
+every network request, and what each permission is for — is in
+[PRIVACY.md](PRIVACY.md).
+
+The one caveat worth repeating here: the **Robot** voice hands text to Chrome's
+own `chrome.tts` API, which on some platforms synthesizes speech over the
+network. The **Fluent** voice runs entirely on your CPU and never transmits
+anything.
 
 ## License
 

@@ -11,10 +11,13 @@ const MODEL_ID = 'onnx-community/Kokoro-82M-v1.0-ONNX';
 const STYLE_DIM = 256;
 const MAX_PHONEME_TOKENS = 509;
 
-// The q8 export is WASM-only — onnxruntime-web's WebGPU backend has no int8
-// matmul — so the GPU path loads the fp32 weights instead. That is a
-// separate, much larger download, which is why the popup labels it.
-const DTYPE_FOR_DEVICE = { wasm: 'q8', webgpu: 'fp32' };
+// CPU (WASM) with the q8 export, deliberately. A WebGPU option shipped
+// briefly in 2.4.0 and was removed: it needed the fp32 weights (a 310 MB
+// download instead of 90 MB) and produced garbled audio — Kokoro is a
+// StyleTTS2 model whose recurrent layers the WebGPU backend has to partition
+// back onto CPU, and the result is not numerically sound today.
+const DEVICE = 'wasm';
+const DTYPE = 'q8';
 
 export const KOKORO_SAMPLE_RATE = 24000;
 
@@ -25,11 +28,11 @@ export class KokoroEngine {
         this.styles = new Map(); // speaker id -> Float32Array
     }
 
-    static async create({ device = 'wasm', speaker = DEFAULT_KOKORO_VOICE, progress_callback = null } = {}) {
+    static async create({ speaker = DEFAULT_KOKORO_VOICE, progress_callback = null } = {}) {
         const [model, tokenizer] = await Promise.all([
             StyleTextToSpeech2Model.from_pretrained(MODEL_ID, {
-                dtype: DTYPE_FOR_DEVICE[device] || DTYPE_FOR_DEVICE.wasm,
-                device,
+                dtype: DTYPE,
+                device: DEVICE,
                 progress_callback
             }),
             AutoTokenizer.from_pretrained(MODEL_ID, { progress_callback })

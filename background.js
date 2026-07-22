@@ -10,7 +10,6 @@ const DEFAULTS = {
     voice: 'robot', // 'robot' | 'fluent'
     kokoroSpeaker: 'af_heart', // any id from src/kokoro-voices.js
     kokoroSpeed: 1, // 0.5–2.0
-    kokoroDevice: 'wasm', // 'wasm' | 'webgpu'
     volume: 100 // 0–100
 };
 
@@ -20,11 +19,23 @@ const TEST_SENTENCE =
     'This is your Gentle Page PDF reading voice. Select text in a PDF, ' +
     'right click, and choose Read aloud.';
 
-// The "Natural" voice (Chatterbox) was dropped in 2.4.0 — a multi-gigabyte
-// download that needed WebGPU and could stall the browser. Reclaim its cached
-// weights, move anyone who had it selected onto Fluent, and drop the readiness
-// flags so the remaining voice re-verifies against what is really cached.
-async function removeNaturalVoice() {
+// Two things were dropped after 2.3.0, and both left multi-hundred-megabyte
+// weights behind:
+//   - the "Natural" voice (Chatterbox): gigabytes, WebGPU-only, could stall
+//     the browser;
+//   - the WebGPU engine for Fluent: it needed the 310 MB fp32 export and
+//     produced garbled audio.
+// Reclaim both, move anyone who selected them back to something that works,
+// and drop the readiness flags so the remaining voice re-verifies against
+// what is actually cached.
+const DEAD_WEIGHTS = [
+    /chatterbox-ONNX/,
+    // Kokoro fp32 — note the anchor, so model_quantized.onnx (the one still
+    // in use) is not matched.
+    /Kokoro-82M[^?]*\/model\.onnx(_data)?$/
+];
+
+async function reclaimRemovedVoices() {
     chrome.storage.sync.get({ voice: DEFAULTS.voice }, ({ voice }) => {
         if (voice === 'natural') chrome.storage.sync.set({ voice: 'fluent' });
     });
@@ -32,14 +43,15 @@ async function removeNaturalVoice() {
         const stale = Object.keys(all).filter((key) => key.startsWith('ttsReady_'));
         if (stale.length) chrome.storage.local.remove(stale);
     });
+    chrome.storage.sync.remove('kokoroDevice');
     try {
-        const cache = await caches.open('transformers-cache');
-        for (const request of await cache.keys()) {
-            if (request.url.includes('chatterbox-ONNX')) await cache.delete(request);
-        }
-        const assets = await caches.open('gentle-tts-assets');
-        for (const request of await assets.keys()) {
-            if (request.url.includes('chatterbox-ONNX')) await assets.delete(request);
+        for (const name of ['transformers-cache', 'gentle-tts-assets']) {
+            const cache = await caches.open(name);
+            for (const request of await cache.keys()) {
+                if (DEAD_WEIGHTS.some((re) => re.test(request.url))) {
+                    await cache.delete(request);
+                }
+            }
         }
     } catch {
         // No cache yet, or storage is unavailable — nothing to reclaim.
@@ -47,7 +59,7 @@ async function removeNaturalVoice() {
 }
 
 chrome.runtime.onInstalled.addListener((details) => {
-    if (details.reason === 'update') removeNaturalVoice();
+    if (details.reason === 'update') reclaimRemovedVoices();
 
     chrome.storage.sync.get(null, (existing) => {
         const missing = {};
@@ -99,7 +111,7 @@ let robotVolume = 1;
 // An offscreen document may only use chrome.runtime — not chrome.storage —
 // so the voice settings are read here and pushed to it with every command,
 // and again whenever they change so a reading in progress follows along.
-const VOICE_KEYS = ['kokoroSpeaker', 'kokoroSpeed', 'kokoroDevice', 'volume'];
+const VOICE_KEYS = ['kokoroSpeaker', 'kokoroSpeed', 'volume'];
 
 async function voiceSettings() {
     const defaults = { voice: DEFAULTS.voice };

@@ -35,16 +35,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const speakerSelect = document.getElementById('kokoro-speaker');
     const speedSlider = document.getElementById('kokoro-speed');
     const speedValue = document.getElementById('kokoro-speed-value');
-    const deviceSelect = document.getElementById('kokoro-device');
-    const deviceNote = document.getElementById('device-note');
     const volumeSlider = document.getElementById('volume');
     const volumeValue = document.getElementById('volume-value');
 
     const DEFAULT_NOTE = ttsNote.innerHTML;
     const VOICE_LABELS = { robot: 'Robot', fluent: 'Fluent' };
-    // The Fluent download depends on the engine: the WebGPU path needs the
-    // fp32 weights, the CPU path the much smaller q8 ones.
-    const FLUENT_SIZES = { wasm: '~90 MB', webgpu: '~310 MB' };
+    const FLUENT_SIZE = '~90 MB';
 
     version.textContent = 'v' + chrome.runtime.getManifest().version;
 
@@ -53,7 +49,6 @@ document.addEventListener('DOMContentLoaded', () => {
     let tabId = null;
     let settings = null;
     let readyFlags = {};
-    let webgpuOk = null; // null while the adapter probe is in flight
 
     // chrome.storage.sync caps writes at ~120/minute, and dragging a slider
     // fires far more `input` events than that, so slider writes are coalesced.
@@ -105,13 +100,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!Number.isFinite(kokoroSpeed)) kokoroSpeed = 1;
         kokoroSpeed = Math.min(2, Math.max(0.5, kokoroSpeed));
 
-        const kokoroDevice = raw.kokoroDevice === 'webgpu' ? 'webgpu' : 'wasm';
-
         let volume = Number(raw.volume);
         if (!Number.isFinite(volume)) volume = 100;
         volume = Math.min(100, Math.max(0, volume));
 
-        return { enabled, theme, intensity, voice, kokoroSpeaker, kokoroSpeed, kokoroDevice, volume };
+        return { enabled, theme, intensity, voice, kokoroSpeaker, kokoroSpeed, volume };
     }
 
     function renderStatus() {
@@ -148,14 +141,12 @@ document.addEventListener('DOMContentLoaded', () => {
         speakerSelect.value = next.kokoroSpeaker;
         speedSlider.value = String(next.kokoroSpeed);
         speedValue.textContent = next.kokoroSpeed.toFixed(1) + '×';
-        deviceSelect.value = next.kokoroDevice;
         volumeSlider.value = String(next.volume);
         volumeValue.textContent = next.volume + '%';
 
         fluentOptions.hidden = next.voice !== 'fluent';
         renderStatus();
         renderReadyFlags();
-        dropWebGpuDevice();
     }
 
     buildSpeakerOptions();
@@ -260,12 +251,6 @@ document.addEventListener('DOMContentLoaded', () => {
         saveSoon({ kokoroSpeed });
     });
 
-    deviceSelect.addEventListener('change', () => {
-        settings.kokoroDevice = deviceSelect.value;
-        chrome.storage.sync.set({ kokoroDevice: deviceSelect.value });
-        renderReadyFlags();
-    });
-
     volumeSlider.addEventListener('input', () => {
         const volume = Number(volumeSlider.value);
         volumeValue.textContent = volume + '%';
@@ -273,74 +258,23 @@ document.addEventListener('DOMContentLoaded', () => {
         saveSoon({ volume });
     });
 
-    // The WebGPU engine option — navigator.gpu can exist with no usable
-    // adapter behind it, so actually ask for one before offering it.
-    if (navigator.gpu) {
-        navigator.gpu.requestAdapter().then((adapter) => {
-            if (!adapter) markNoWebGpu();
-        }).catch(markNoWebGpu);
-    } else {
-        markNoWebGpu();
-    }
-    function markNoWebGpu() {
-        webgpuOk = false;
-        const webgpuOption = deviceSelect.querySelector('option[value="webgpu"]');
-        webgpuOption.disabled = true;
-        webgpuOption.textContent = 'WebGPU · unavailable';
-        dropWebGpuDevice();
-    }
-
-    // The adapter probe and the settings read race each other, so whichever
-    // lands second falls back to the CPU engine.
-    function dropWebGpuDevice() {
-        if (webgpuOk !== false || !settings) return;
-        if (settings.kokoroDevice === 'webgpu') {
-            settings.kokoroDevice = 'wasm';
-            deviceSelect.value = 'wasm';
-            chrome.storage.sync.set({ kokoroDevice: 'wasm' });
-        }
-        renderReadyFlags();
-    }
-
-    // A voice counts as ready once its weights are cached. Fluent is tracked
-    // per engine, since CPU and WebGPU download different files.
-    function fluentReadyKey(device) {
-        return `ttsReady_fluent_${device}`;
-    }
-
+    // A voice counts as ready once its weights are cached.
     function renderReadyFlags() {
         if (!settings) return;
-        const device = settings.kokoroDevice;
-        // ttsReady_fluent is the pre-2.3 flag, which was always the CPU build.
-        const fluentReady =
-            readyFlags[fluentReadyKey(device)] ||
-            (device === 'wasm' && readyFlags.ttsReady_fluent);
-
-        if (fluentReady) {
+        if (readyFlags.ttsReady_fluent) {
             voiceStates.fluent.textContent = 'Ready';
             voiceStates.fluent.classList.add('ready');
         } else {
-            voiceStates.fluent.textContent = FLUENT_SIZES[device];
+            voiceStates.fluent.textContent = FLUENT_SIZE;
             voiceStates.fluent.classList.remove('ready');
-        }
-
-        const needsDownload = device === 'webgpu' && !fluentReady;
-        deviceNote.hidden = !needsDownload;
-        if (needsDownload) {
-            deviceNote.textContent =
-                'WebGPU runs the full-precision model — a separate ' +
-                FLUENT_SIZES.webgpu + ' download the first time.';
         }
     }
 
     function loadReadyFlags() {
-        chrome.storage.local.get(
-            ['ttsReady_fluent', 'ttsReady_fluent_wasm', 'ttsReady_fluent_webgpu'],
-            (flags) => {
-                readyFlags = flags;
-                renderReadyFlags();
-            }
-        );
+        chrome.storage.local.get(['ttsReady_fluent'], (flags) => {
+            readyFlags = flags;
+            renderReadyFlags();
+        });
     }
 
     loadReadyFlags();

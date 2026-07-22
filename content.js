@@ -1,10 +1,10 @@
-// Paperlight — content script.
+// Paperlight content script.
 // Injected on every page (and frame), but only ever acts on PDF documents.
 //
 // Chromium's PDF viewer is an out-of-process frame that is NOT an element
 // in the wrapper document (its <body> is empty), and content scripts are
-// blocked from the inner plugin frame. What does work — verified against
-// the OOPIF viewer — is applying the CSS filter to the wrapper document's
+// blocked from the inner plugin frame. What does work, verified against
+// the OOPIF viewer, is applying the CSS filter to the wrapper document's
 // <html> element: the viewer composites inside it. For PDFs embedded in
 // normal web pages we filter the <embed> element itself instead, so the
 // surrounding site is never affected.
@@ -50,7 +50,7 @@ function round(n) {
     return Math.round(n * 1000) / 1000;
 }
 
-// i is 0–1. Values are baked into the string — no var()/calc() so there
+// i is 0–1. Values are baked into the string, no var()/calc() so there
 // is nothing the PDF wrapper document can fail to resolve.
 function filterFor(theme, i) {
     if (theme === 'dark') {

@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "Paperlight — PDF Dark Mode & Read Aloud",
+  "name": "Paperlight: PDF Dark Mode & Read Aloud",
   "short_name": "Paperlight",
   "version": "2.7.0",
-  "description": "Dark mode, sepia, and paper themes for Chrome's PDF viewer — plus read PDFs aloud with natural offline voices.",
+  "description": "Dark mode, sepia, and paper themes for Chrome's PDF viewer, plus read PDFs aloud with natural offline voices.",
   "permissions": [
     "storage",
     "offscreen",

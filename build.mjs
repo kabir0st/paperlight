@@ -10,7 +10,7 @@ const common = {
     platform: 'browser',
     minify: true,
     logLevel: 'info',
-    // Node-only optional deps of transformers.js — never reached in browser.
+    // Node-only optional deps of transformers.js, never reached in browser.
     external: ['onnxruntime-node', 'sharp', 'fs', 'path', 'url', 'module', 'worker_threads', 'perf_hooks', 'os']
 };
 

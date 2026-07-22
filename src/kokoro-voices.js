@@ -3,11 +3,11 @@
 // English only: the bundled phonemizer handles American ('a') and British
 // ('b') English, which covers the af_/am_/bf_/bm_ files in
 // onnx-community/Kokoro-82M-v1.0-ONNX/voices/. Each speaker is a ~0.5 MB
-// style tensor fetched on demand, so switching is cheap — the 82M model
+// style tensor fetched on demand, so switching is cheap, the 82M model
 // itself is shared by all of them.
 //
-// Kokoro publishes 28 English speakers; this is a curated four — one per
-// accent/gender pairing — because picking a reading voice is a one-time
+// Kokoro publishes 28 English speakers; this is a curated four, one per
+// accent/gender pairing, because picking a reading voice is a one-time
 // decision and a 28-entry dropdown made it feel like a chore.
 //
 // This module is imported by the bundled engine AND loaded directly by the

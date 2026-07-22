@@ -1,6 +1,6 @@
-# Dependencies — reinstalled with `npm install` before `npm run build`.
+# Dependencies, reinstalled with `npm install` before `npm run build`.
 # The build *output* (offscreen.js, tts-worker.js, vendor/) is committed on
-# purpose so load-unpacked works without Node — do not add it here.
+# purpose so load-unpacked works without Node, do not add it here.
 node_modules/
 
 # npm / logs

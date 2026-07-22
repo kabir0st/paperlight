@@ -1,4 +1,4 @@
-// "Fluent" voice — Kokoro-82M running locally via transformers.js.
+// "Fluent" voice: Kokoro-82M running locally via transformers.js.
 // A thin reimplementation of kokoro-js on transformers v4 (kokoro-js pins
 // v3, which would force two copies of the runtime into the bundle).
 
@@ -15,7 +15,7 @@ const MAX_PHONEME_TOKENS = 509;
 // through 2.6.0 and was dropped: it meant a second 155–310 MB download, and
 // StyleTTS2's recurrent layers get partitioned back onto the CPU anyway, which
 // on some GPUs produced garbled speech. q8 has no WebGPU kernel, so device and
-// dtype are a matched pair — do not change one without the other.
+// dtype are a matched pair, do not change one without the other.
 const DEVICE = 'wasm';
 const DTYPE = 'q8';
 
@@ -58,7 +58,7 @@ export class KokoroEngine {
     }
 
     // Returns a Float32Array waveform at KOKORO_SAMPLE_RATE.
-    // speed > 1 talks faster without shifting pitch — the model takes it as
+    // speed > 1 talks faster without shifting pitch, the model takes it as
     // an input, so this is not resampling.
     async synthesize(text, { speaker = DEFAULT_KOKORO_VOICE, speed = 1 } = {}) {
         const { id, style: voiceData } = await this.loadSpeaker(speaker);

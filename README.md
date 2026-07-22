@@ -1,161 +1,187 @@
-# Paperlight — PDF Dark Mode & Read Aloud
+<div align="center">
 
-A Chrome extension that makes PDFs comfortable to read. It applies gentle color filters to Chrome's built-in PDF viewer — softening the harsh white background into paper-like tones, or flipping the page into a proper dark mode — with an intensity slider to dial the effect in. It can also **read your PDFs aloud**, using voices that run entirely on your machine — no cloud APIs.
+<img src="images/icon128.png" width="88" alt="Paperlight">
 
-![Chrome Extension](https://img.shields.io/badge/Chrome-Extension-4285F4?logo=google-chrome&logoColor=white)
-![Manifest V3](https://img.shields.io/badge/Manifest-V3-4285F4?logo=google-chrome&logoColor=white)
-![Offline TTS](https://img.shields.io/badge/TTS-100%25%20offline-3e7b4f)
+# Paperlight
 
-> Everything runs locally. No account, no telemetry, no server — the PDF text
-> never leaves your machine, and after the one-time voice download the
-> read-aloud works with the network off. See [PRIVACY.md](PRIVACY.md).
+### PDF dark mode, sepia and paper themes, plus read aloud
 
-## Features
+Chrome's PDF viewer is a wall of glaring white. Paperlight softens it into
+something you can read for an hour, then reads it out loud to you if your eyes
+have had enough.
 
-- **Three reading themes**
-  - **Paper** — a soft cream tint with slightly lifted blacks
-  - **Sepia** — a warmer, old-book tone
-  - **Dark** — white pages become charcoal, ink becomes off-white (image colors stay close to correct)
-- **Intensity slider** — scale any theme from barely-there to full strength
-- **Instant** — changes apply live to open PDFs, no reload needed
-- **PDF-only by design** — the extension activates only on PDF documents and never touches normal websites
-- **Read aloud (local TTS)** — select text and right-click → *Read aloud*, or read the **whole PDF** from any page (popup button or right-click → *Read this PDF aloud*). Two voices:
-  - **Robot** — the system voice via `chrome.tts`. No download, quality depends on your OS.
-  - **Fluent** — [Kokoro-82M](https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX), a small neural TTS model, with a curated four English speakers: **Nicole** and **Santa** (American), **Isabella** and **George** (British). **~90 MB** one-time download, running on the CPU (WASM).
-  - Model downloads are cached (Cache API), so the AI voice downloads once and then works offline. The popup shows download size, live progress, and a Ready badge per voice; the toolbar icon shows a badge (`42%` downloading, `…` generating, `▶` speaking, `⏸` paused) so you get feedback even with the popup closed.
-  - Inference runs in a dedicated Web Worker, so the browser and popup stay fully responsive while downloading and speaking.
-- **In-page controls** — Chrome closes the toolbar popup the moment you click the page, so everything it offers is also reachable from the PDF itself. A small launcher sits in the corner of every PDF tab; it opens the **full settings panel** — themes, intensity, voice, speaker, speed, volume, and *Read this PDF* — without going near the toolbar. While something is being read, a compact card shows progress with **Pause** and **Stop**. Both follow the Dark theme.
-- **Voice options** (popup → *Voice options*) — pick a speaker, set the speaking speed from 0.5× to 2×, and set the playback volume. Download progress and live status sit at the bottom of the popup, with a spinner whenever something is being prepared or generated.
-- **Synced settings** — preferences are saved with `chrome.storage.sync` and follow your Chrome profile
+[![Chrome Extension](https://img.shields.io/badge/Chrome-Extension-4285F4?logo=google-chrome&logoColor=white)](https://developer.chrome.com/docs/extensions)
+[![Manifest V3](https://img.shields.io/badge/Manifest-V3-4285F4?logo=google-chrome&logoColor=white)](https://developer.chrome.com/docs/extensions/develop/migrate)
+[![100% offline](https://img.shields.io/badge/voices-100%25%20offline-3e7b4f)](PRIVACY.md)
+[![No tracking](https://img.shields.io/badge/tracking-none-3e7b4f)](PRIVACY.md)
 
-## Installation
+<img src="docs/screenshots/hero.png" width="820" alt="A PDF in Chrome with the Dark theme applied">
 
-1. Clone or download this repository
-   ```bash
-   git clone https://github.com/kabir0st/paperlight.git
-   ```
-2. Open `chrome://extensions/` in Chrome
-3. Enable **Developer mode** (top-right toggle)
-4. Click **Load unpacked** and select the `paperlight` folder
-5. (Optional) Pin **Paperlight** from the puzzle-piece menu
+</div>
 
-> **Local PDFs:** to use the extension on `file://` PDFs, open the extension's details page and enable **Allow access to file URLs**.
+---
 
-## Usage
+## Three ways to read
 
-1. Open any PDF in Chrome
-2. Click the Paperlight icon
-3. Flip the switch on — the popup also tells you whether the current tab is a PDF
-4. Pick a theme (Paper / Sepia / Dark) and adjust the intensity
+Pick a mood, then slide the intensity from barely-there to full strength. The
+change lands instantly, with no page reload.
 
-Settings apply immediately and persist across sessions.
+<div align="center">
 
-### Read aloud
+| Paper | Sepia | Dark |
+|:---:|:---:|:---:|
+| <img src="docs/screenshots/theme-paper.png" width="260" alt="Paper theme"> | <img src="docs/screenshots/theme-sepia.png" width="260" alt="Sepia theme"> | <img src="docs/screenshots/theme-dark.png" width="260" alt="Dark theme"> |
+| A soft cream tint, blacks lifted just enough | A warmer, old-book tone | Charcoal pages, off-white ink, images kept close to true |
 
-1. Pick a voice in the popup's **Read aloud** section (Robot / Fluent — download size is shown per voice)
-2. Click **Test voice** to hear it (AI voices download and cache on first use, with a progress bar)
-3. Select text in any PDF (or web page), right-click → **Read aloud**
-4. Or read the whole document: on a PDF tab the popup shows **Read this PDF** with a *from page* field (also available as right-click → **Read this PDF aloud**)
-5. Or skip the toolbar entirely: click the launcher in the bottom-right of any PDF to open the same controls inside the page. While reading, a compact card there shows progress with **Pause** and **Stop** — it stays put when you click away, unlike the popup, and the toolbar badge shows what's happening at any time.
-6. Open **Voice options** in the popup to change the Fluent speaker, speed, and volume. All three apply to the reading already in progress — the next sentence picks them up.
+</div>
 
-## How it works
+## Let it read to you
 
-Chrome renders PDFs in an out-of-process viewer, which rules out most page-styling tricks: blend-mode overlays, `backdrop-filter`, and SVG filter references can't reach the viewer's pixels, and in current Chromium the viewer isn't even an element in the wrapper document (its `<body>` is empty), with content scripts blocked from the inner plugin frame. What does work — verified against the current out-of-process viewer — is applying plain CSS `filter` functions to the wrapper document's `<html>` element, inside which the viewer is composited:
+Select any text, right-click, choose **Read aloud**. Or hand it the whole
+document and go make coffee.
 
-- The content script runs in every page and frame but immediately exits unless the document is a PDF (`document.contentType === 'application/pdf'` or a PDF `<embed>` is present).
-- On a PDF tab it filters the wrapper document's `<html>` element; for a PDF `<embed>` inside a normal web page it filters just that element, so the surrounding site is untouched.
-- Chromium doesn't reliably apply manifest-declared content CSS to PDF wrapper documents, so the script injects its own `<style>` node and mirrors the filter as an inline style.
-- Each theme is a combination of `sepia()`, `invert()`, `hue-rotate()`, `contrast()`, and `brightness()` filters, with the intensity value baked into the numbers.
-- Because styling is only ever injected on PDF documents, regular websites are never touched.
+<div align="center">
 
-### How read-aloud works
+<img src="docs/screenshots/popup.png" width="320" alt="The Paperlight popup"> &nbsp;&nbsp; <img src="docs/screenshots/reading.png" width="320" alt="The in-page card while reading">
 
-- The **Robot** voice uses `chrome.tts` (your operating system's speech engine) straight from the service worker.
-- The Fluent voice runs in an **offscreen document** that spawns a **dedicated Web Worker** for inference — extension pages share one renderer thread, so running models on it would freeze the popup; the worker keeps everything responsive. Text is split into sentences, synthesized chunk-by-chunk by [transformers.js](https://github.com/huggingface/transformers.js) (ONNX Runtime WASM), and streamed into the Web Audio API — sentence *n+1* is generated while sentence *n* plays, with ~30 s of audio buffered ahead as backpressure for long documents.
-- **Whole-PDF reading** fetches the PDF bytes and extracts text page-by-page with [pdf.js](https://mozilla.github.io/pdf.js/); for the Robot voice, pages stream to `chrome.tts` as queued utterances.
-- Model weights download from the Hugging Face Hub on first use and are stored in the browser's Cache API — nothing is re-downloaded afterwards, and no text or audio ever leaves your machine. Kokoro's speakers are separate ~0.5 MB style tensors, so switching speaker costs one small fetch, not a model reload. Only the q8 export is ever loaded (`model_quantized.onnx`), so there is exactly one set of weights to download and track.
-- The **in-page controls** are a content script rendering into a shadow root, so no page stylesheet can reach them. Chromium applies a CSS `filter` to every descendant of the element it is set on, so an ordinary overlay would be inverted along with the page under the Dark theme; these render in the browser's **top layer** (the popover API), which is painted outside ancestor filter effects — verified against Chrome's PDF viewer, where a top-layer element composites cleanly above the plugin.
-- The settings panel is not a second copy of the popup: it embeds `popup.html` itself in an iframe (hence `web_accessible_resources`), so the popup logic runs unchanged and the two surfaces can never drift apart. The framed page reports its own height by `postMessage`, since a content script cannot read across the extension-origin boundary.
-- **Pause** suspends the offscreen `AudioContext`, which freezes the scheduled playback tail and the backpressure loops with it — so synthesis stops too, rather than racing ahead while you're paused. The Robot voice uses `chrome.tts.pause()`.
-- All executable code (transformers.js bundle, ONNX Runtime WASM, pdf.js) ships inside the extension, as Manifest V3 requires.
+</div>
 
-### Project structure
+Two voices to choose from:
 
-```
-paperlight/
-├── manifest.json    # Manifest V3 definition
-├── content.js       # Detects PDFs, builds and injects the theme filters
-├── hud.js           # In-page launcher, settings panel, activity card
-├── popup.html/css/js# Popup UI: themes, intensity, voice picker, voice options
-├── background.js    # Defaults, context menu, robot voice, offscreen lifecycle,
-│                    # status fan-out to popup + badge + HUD
-├── offscreen.html   # Offscreen document hosting playback + PDF extraction
-├── offscreen.js     # BUILT coordinator bundle (pdf.js, playback, worker mgmt)
-├── tts-worker.js    # BUILT inference worker bundle (transformers.js + engines)
-├── src/             # Sources for the built bundles
-│   ├── offscreen-main.js    # Playback queue, pdf.js extraction, statuses
-│   ├── tts-worker.js        # Inference worker: model download + synthesis
-│   ├── kokoro-engine.js     # "Fluent" voice (Kokoro-82M)
-│   ├── kokoro-voices.js     # Speaker list, shared by the engine and popup
-│   ├── tts-common.js        # Asset caching + sentence splitting
-│   └── vendor/phonemize.js  # Vendored from kokoro-js (Apache-2.0)
-├── vendor/          # ONNX Runtime WASM + pdf.js worker (copied by build.mjs)
-├── build.mjs        # esbuild bundling script (npm run build)
-└── images/          # Toolbar icons and logo
+| | Sounds like | Download | Runs |
+|---|---|---|---|
+| **Robot** | Your operating system's built-in voice | Nothing | Instantly |
+| **Fluent** | A real person, four of them | 90 MB, once | On your own CPU, offline afterwards |
+
+Fluent is [Kokoro-82M](https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX),
+a small neural speech model that runs inside your browser. Meet the cast:
+
+**Nicole** and **Santa** (American), **Isabella** and **George** (British).
+
+Set the speed anywhere from 0.5x to 2x, adjust the volume, and change your mind
+mid-sentence. The next sentence picks up the new settings.
+
+## Nice touches
+
+**It stays out of the way.** Paperlight only wakes up on actual PDF documents.
+Normal websites are never touched, never styled, never read.
+
+**It works when the popup does not.** Chrome slams the toolbar popup shut the
+moment you click the page. So every control also lives inside the PDF itself:
+a small launcher in the corner opens the full settings panel, and a compact
+card shows progress with Pause and Stop while something is being read.
+
+**It tells you what it is doing.** The toolbar icon shows a badge even with
+everything closed: `42%` while downloading, `…` while generating, `▶` while
+speaking, `⏸` while paused.
+
+**It remembers.** Your theme, intensity, voice, and speed follow your Chrome
+profile across devices.
+
+**It never phones home.** No account, no analytics, no server. After the
+one-time voice download, read aloud works with the network off.
+See [PRIVACY.md](PRIVACY.md).
+
+## Install
+
+Paperlight is not on the Chrome Web Store yet. To run it now:
+
+```bash
+git clone https://github.com/kabir0st/paperlight.git
 ```
 
-Rebuilding after changing `src/`: `npm install && npm run build` (the built
-`offscreen.js` and `vendor/` are committed, so plain load-unpacked works
-without Node).
+1. Open `chrome://extensions` in Chrome
+2. Turn on **Developer mode** (top-right toggle)
+3. Click **Load unpacked** and pick the `paperlight` folder
+4. Pin Paperlight from the puzzle-piece menu so it is one click away
 
-### Permissions
+> **Reading PDFs saved on your computer?** Open the extension's details page and
+> switch on **Allow access to file URLs**.
+
+## Using it
+
+Open a PDF, click the Paperlight icon, flip the switch on. Pick a theme, drag
+the intensity slider, done. The popup also tells you whether the current tab is
+actually a PDF.
+
+For read aloud:
+
+1. Choose **Robot** or **Fluent** in the popup. Fluent downloads once, with a
+   progress bar, and is cached forever after.
+2. Hit **Test voice** to hear it.
+3. Select text in any PDF, right-click, choose **Read aloud**.
+4. Or read the whole thing: on a PDF tab the popup shows **Read this PDF**, with
+   a *from page* box if you want to skip the front matter. It is in the
+   right-click menu too.
+5. Prefer to stay in the page? Click the launcher in the bottom-right corner.
+   Same controls, and unlike the popup it stays put when you click away.
+
+## Good to know
+
+- Depending on your Chrome version, the viewer's own toolbar may pick up the
+  tint. On current Chromium it stays native.
+- Images are filtered along with the page. Dark mode rotates hues after
+  inverting to keep colors roughly right, but photos will not be pixel-perfect.
+- Sites with their own JavaScript PDF readers are not Chrome's viewer, so they
+  are unaffected.
+- Fluent speaks English only, American and British. It runs on the CPU, so it
+  works everywhere, just slower on older machines.
+- The Robot voice is only as good as your operating system's speech engine. On
+  Linux that is usually espeak-ng, which is very robotic.
+- Needs Chrome 116 or newer for read aloud.
+
+## If something goes wrong
+
+| Symptom | Fix |
+|---|---|
+| Nothing happens on a PDF | Refresh the tab once after installing or updating |
+| Nothing happens on a local file | Turn on *Allow access to file URLs* in the extension's details |
+| Popup says "Open a PDF to see the effect" | The current tab is not a PDF. Paperlight only acts on PDFs |
+| Settings do not sync between machines | Sign into Chrome. Downloaded voices stay per-machine either way |
+| "Read aloud" missing from the right-click menu | It only appears when text is selected. Reload the extension after updating |
+| Read aloud stops with an audio error | The browser suspended playback. Press Stop, then start again |
+| Read aloud does nothing on a PDF | The pages are probably scans, so there is no text to read. If you cannot select the text by hand, neither can Paperlight |
+| Your speaker or the engine picker vanished | Version 2.7.0 removed the experimental WebGPU engine and narrowed the speaker list to four. Updating moves you to Nicole and reclaims the unused download |
+
+## For developers
+
+Architecture notes, the reasoning behind the filter approach, and the project
+layout live in [ARCHITECTURE.md](ARCHITECTURE.md).
+
+```bash
+npm install
+npm run build
+```
+
+### Permissions, and why
 
 | Permission | Why |
 |---|---|
-| `storage` | Save and sync your theme, intensity, and voice preferences |
-| Host access (`<all_urls>`) | PDFs can live at any URL; the content scripts need to load everywhere to detect them (the theming one exits immediately on non-PDF pages, and the player stays inert until something is being read) |
-| `contextMenus` | The right-click **Read aloud** item on selected text |
-| `tts` | The Robot voice (system speech engine) |
-| `offscreen` | A hidden extension page that runs the AI voices and plays audio |
-
-## Limitations
-
-- Depending on the Chrome version, the viewer toolbar may be tinted along with the page (on current Chromium the toolbar stays native).
-- Images inside PDFs are filtered along with everything else. Dark mode uses `hue-rotate(180deg)` after inversion to keep image colors approximately correct, but photos will not look pixel-perfect.
-- Sites that embed their own JavaScript PDF viewers (e.g., PDF.js-based readers that draw to a `<canvas>`) are not Chrome's native viewer and are unaffected.
-- The **Fluent** voice is English-only (American and British), and offers four speakers rather than Kokoro's full 28. It runs on the CPU, so it works everywhere — just slower on old machines.
-- The Robot voice's quality depends on your OS speech engine — on Linux it is typically espeak-ng (very robotic).
-- Works in Chrome and Chromium-based browsers with Manifest V3 (Chrome 116+ for the read-aloud feature, which uses the Offscreen API).
-
-## Troubleshooting
-
-- **Nothing happens on a PDF** — refresh the tab once after installing or updating the extension (content scripts only attach on page load).
-- **Nothing happens on a local file** — enable *Allow access to file URLs* in the extension's details.
-- **Popup says "Open a PDF to see the effect"** — the current tab isn't a PDF document; the extension only acts on PDFs.
-- **Settings don't sync between machines** — sign into Chrome so `chrome.storage.sync` can sync. (Downloaded voice models are per-machine.)
-- **"Read aloud" is missing from the right-click menu** — it only appears when text is selected; reload the extension after updating.
-- **Read aloud stops with an audio error** — the browser blocked or suspended playback. Press Stop and start the reading again.
-- **Read-aloud does nothing on a PDF** — if the pages are scans, there is no selectable text to read and the extension now says so. Try selecting text manually: if you cannot select it, neither can the extension.
-- **The engine picker / my speaker is gone** — the experimental WebGPU engine was removed in 2.7.0 (it cost a second 155–310 MB download and produced garbled speech on some GPUs), and the speaker list narrowed to four. Updating reclaims the WebGPU weights and moves you to **Nicole**.
-- **A "Natural" voice used to be here** — Chatterbox (0.5B, ~1.4 GB, WebGPU-only) was removed in 2.4.0: a multi-gigabyte download that could stall the browser. Updating evicts its cached weights and moves you to Fluent.
+| `storage` | Remember your theme, intensity, and voice |
+| Host access (`<all_urls>`) | PDFs live at unpredictable URLs, so the detector has to be allowed to load anywhere. It exits immediately on anything that is not a PDF |
+| `contextMenus` | The right-click **Read aloud** item |
+| `tts` | The Robot voice |
+| `offscreen` | A hidden page that runs the Fluent voice and plays audio |
 
 ## Privacy
 
-No accounts, no analytics, no servers. The full policy — every stored value,
-every network request, and what each permission is for — is in
-[PRIVACY.md](PRIVACY.md).
+No accounts, no analytics, no servers, nothing sold or shared. Full details of
+every stored value and every network request are in [PRIVACY.md](PRIVACY.md).
 
-The one caveat worth repeating here: the **Robot** voice hands text to Chrome's
-own `chrome.tts` API, which on some platforms synthesizes speech over the
-network. The **Fluent** voice runs entirely on your CPU and never transmits
-anything.
+One caveat worth repeating here: the **Robot** voice hands your text to Chrome's
+own speech API, which on some platforms synthesizes over the network. The
+**Fluent** voice runs entirely on your CPU and transmits nothing.
 
 ## License
 
-ISC (as declared in `package.json`) — use, modify, and distribute freely.
-The vendored `src/vendor/phonemize.js` is from [kokoro-js](https://github.com/hexgrad/kokoro) under Apache-2.0.
+ISC, as declared in `package.json`. Use, modify, and distribute freely.
+The vendored `src/vendor/phonemize.js` comes from
+[kokoro-js](https://github.com/hexgrad/kokoro) under Apache-2.0.
 
-## Author
+---
 
-Created by [Kabir Tamari](https://kabirtamari.com/)
+<div align="center">
+
+Built by [Kabir Tamari](https://kabirtamari.com/)
+
+</div>

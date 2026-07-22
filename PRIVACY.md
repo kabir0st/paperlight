@@ -1,4 +1,4 @@
-# Privacy Policy — Paperlight
+# Privacy Policy, Paperlight
 
 **Effective date:** 22 July 2026
 **Applies to:** Paperlight (“PDF Dark Mode & Read Aloud”), Chrome extension, version 2.7.0 and later
@@ -29,7 +29,7 @@ All of it stays in your browser. None of it is readable by the developer.
 you are signed into the same Google account. That is a Chrome feature, governed
 by [Google's Privacy Policy](https://policies.google.com/privacy); the extension
 only writes the preference values listed above into it. If you are not signed
-into Chrome, this data stays on the one device. Model weights are never synced —
+into Chrome, this data stays on the one device. Model weights are never synced -
 they are per-device.
 
 ## Network connections
@@ -39,8 +39,8 @@ others.
 
 | Request | When | What the other end sees |
 |---|---|---|
-| `huggingface.co` — model weights (~90 MB, one time) | First use of the **Fluent** voice | Your IP address and which file was requested. No text, no PDF, no identifier is sent. |
-| `huggingface.co` — speaker style file (~0.5 MB) | First use of each speaker | Same as above |
+| `huggingface.co`, model weights (~90 MB, one time) | First use of the **Fluent** voice | Your IP address and which file was requested. No text, no PDF, no identifier is sent. |
+| `huggingface.co`, speaker style file (~0.5 MB) | First use of each speaker | Same as above |
 | The PDF's own URL | Only when you use **Read this PDF aloud** | The server already hosting that PDF receives one additional request for it, from your browser as usual |
 
 Hugging Face is the model host and is a third party; their handling of request
@@ -82,7 +82,7 @@ offscreen page for synthesis.
 - No advertising, tracking pixels, fingerprinting, or cookies
 - No collection of browsing history, page content, form data, or credentials
 - No sale, sharing, or transfer of any data to anyone
-- No remote code execution — all executable code ships inside the extension, as
+- No remote code execution, all executable code ships inside the extension, as
   Manifest V3 requires
 
 ## Chrome Web Store data disclosures

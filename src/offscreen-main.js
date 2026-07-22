@@ -1,6 +1,6 @@
-// Paperlight — offscreen document (coordinator).
-// Inference runs in a dedicated Web Worker (tts-worker.js) so this thread —
-// which is shared with the popup — stays responsive. This document only:
+// Paperlight offscreen document (coordinator).
+// Inference runs in a dedicated Web Worker (tts-worker.js) so this thread -
+// which is shared with the popup, stays responsive. This document only:
 //   - orchestrates the worker (one synthesize request in flight),
 //   - plays audio through the Web Audio API,
 //   - extracts PDF text with pdf.js for whole-document reading,
@@ -17,7 +17,7 @@ const MAX_BUFFERED_SECONDS = 30; // synth backpressure for long documents
 // ---------------------------------------------------------------- settings
 
 // Voice tuning lives in chrome.storage.sync, but an offscreen document may
-// only use chrome.runtime — no chrome.storage — so the service worker owns
+// only use chrome.runtime, no chrome.storage, so the service worker owns
 // the settings and pushes them here with every command, plus a 'settings'
 // message whenever they change. That keeps speaker/speed/volume live for the
 // reading already in progress.
@@ -98,7 +98,7 @@ function getWorker() {
             for (const p of pending.values()) p.reject(error);
             pending.clear();
             // With nothing in flight the rejections above reach no one, so
-            // report it directly — otherwise a crashed worker just looks like
+            // report it directly, otherwise a crashed worker just looks like
             // a reading that never continues.
             setStatus({
                 phase: 'error',
@@ -186,7 +186,7 @@ class PlaybackSession {
     }
 
     // Suspending the context freezes currentTime, so the scheduled tail and
-    // the two wait loops below all pause with it — synthesis included.
+    // the two wait loops below all pause with it, synthesis included.
     pause() {
         this.paused = true;
         if (this.ctx) this.ctx.suspend().catch(() => {});
@@ -210,7 +210,7 @@ class PlaybackSession {
     // Waits for the scheduled audio to drain. A context that never runs never
     // will, so nudge it and eventually give up loudly rather than spinning on
     // a clock that is standing still. The test is whether currentTime is
-    // actually frozen — Chrome may briefly suspend a context between buffers,
+    // actually frozen, Chrome may briefly suspend a context between buffers,
     // and that must not be mistaken for a dead one.
     async waitUntilDone() {
         let frozenMs = 0;
@@ -251,7 +251,7 @@ async function speakChunks(mySession, voice, chunks, describe) {
         if (mySession.aborted) return;
         // Report what is actually happening: with audio still buffered we are
         // generating ahead while it plays, but with the buffer empty the user
-        // is waiting on synthesis — saying "speaking" there reads as a hang.
+        // is waiting on synthesis, saying "speaking" there reads as a hang.
         setStatus({
             phase: mySession.bufferedSeconds() > 0.25 ? 'speaking' : 'generating',
             voice,
@@ -313,7 +313,7 @@ async function readPdf(url, fromPage, voice) {
 
         // A PDF with no extractable text (a scan, or a start page past the end
         // of the text) would otherwise run this loop to completion in silence
-        // and report idle — indistinguishable from a broken extension.
+        // and report idle, indistinguishable from a broken extension.
         let readAnything = false;
 
         for (let p = start; p <= total; p++) {
@@ -338,7 +338,7 @@ async function readPdf(url, fromPage, voice) {
                 start > 1
                     ? `No selectable text from page ${start} to ${total}. If this is a scanned PDF, ` +
                       'the text is an image and cannot be read aloud.'
-                    : 'No selectable text in this PDF — it is probably a scan, so there is ' +
+                    : 'No selectable text in this PDF. It is probably a scan, so there is ' +
                       'nothing to read aloud.'
             );
         }

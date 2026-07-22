@@ -1,14 +1,14 @@
-// Paperlight — in-page controls.
+// Paperlight in-page controls.
 //
 // Chrome closes the toolbar popup the moment focus leaves it, so everything it
 // offers is also reachable from the page itself:
 //   - a small launcher button on PDF tabs,
-//   - which opens the full settings panel (the popup page, embedded — one
+//   - which opens the full settings panel (the popup page embedded: one
 //     implementation, not a copy),
 //   - plus an activity card with Pause/Stop whenever something is being read.
 //
 // Filter caveat: the theming content script applies a CSS `filter` to <html>
-// (or to the PDF <embed>), and a filter applies to every descendant — a plain
+// (or to the PDF <embed>), and a filter applies to every descendant, so a plain
 // overlay would come out inverted under the Dark theme. This lives in the
 // browser's top layer via the popover API, which is painted outside ancestor
 // filter effects. Verified against Chrome's PDF viewer: both a top-layer
@@ -67,7 +67,7 @@ const CSS = `
 .launcher svg { width: 20px; height: 20px; }
 .launcher[hidden], .card[hidden], .panel[hidden] { display: none; }
 
-/* Settings panel — the popup page itself, embedded */
+/* Settings panel, the popup page itself, embedded */
 .panel {
   width: ${PANEL_WIDTH}px;
   border-radius: 12px;
@@ -123,7 +123,7 @@ const CSS = `
 .btn.primary:hover { background: #3c3a34; }
 .actions[hidden], .btn[hidden] { display: none; }
 
-/* Follow the reading theme — a cream card glares on a dark page. */
+/* Follow the reading theme, a cream card glares on a dark page. */
 .dark .launcher, .dark .card {
   border-color: #3a3934; background: #232323; color: #e8e4dc;
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
@@ -273,9 +273,9 @@ function conceal() {
     shown = false;
 }
 
-// Match the surfaces to the reading theme, and — only on the fallback path,
+// Match the surfaces to the reading theme, and, only on the fallback path,
 // where this is a plain descendant of <html> and does inherit the theme
-// filter — undo that filter. Just the Dark theme needs undoing; Paper and
+// filter, undo that filter. Just the Dark theme needs undoing; Paper and
 // Sepia only tint the card, which reads as intentional.
 function applyTheme() {
     if (!host || !ui) return;
@@ -315,7 +315,7 @@ function describe(state) {
         case 'downloading':
             return {
                 phase: `Downloading ${label} voice`,
-                detail: `${state.pct ?? 0}% of ${formatMB(state.total)} — one time only`,
+                detail: `${state.pct ?? 0}% of ${formatMB(state.total)}, one time only`,
                 pct: state.pct ?? 0
             };
         case 'loading':

@@ -1,4 +1,4 @@
-// Paperlight — service worker.
+// Paperlight service worker.
 // Owns default settings, the "Read aloud" context menu, the robot voice
 // (chrome.tts), the offscreen document that runs the AI voices, and the
 // status fan-out to the popup, the toolbar badge and the in-page HUD.
@@ -20,7 +20,7 @@ const TEST_SENTENCE =
     'right click, and choose Read aloud.';
 
 // Weights no longer reachable by any code path, reclaimed on update:
-//   - Chatterbox, the "Natural" voice dropped in 2.4.0 — gigabytes of weights,
+//   - Chatterbox, the "Natural" voice dropped in 2.4.0, gigabytes of weights,
 //     WebGPU-only, and it could stall the browser.
 //   - Kokoro's fp32 (model.onnx) and fp16 (model_fp16.onnx) exports, which fed
 //     the WebGPU engine dropped in 2.7.0. The CPU build the extension actually
@@ -47,7 +47,7 @@ async function reclaimRemovedVoices() {
             }
         }
     } catch {
-        // No cache yet, or storage is unavailable — nothing to reclaim.
+        // No cache yet, or storage is unavailable, nothing to reclaim.
     }
 }
 
@@ -101,7 +101,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 // voice picks the volume up per utterance from here.
 let robotVolume = 1;
 
-// An offscreen document may only use chrome.runtime — not chrome.storage —
+// An offscreen document may only use chrome.runtime, not chrome.storage -
 // so the voice settings are read here and pushed to it with every command,
 // and again whenever they change so a reading in progress follows along.
 const VOICE_KEYS = ['kokoroSpeaker', 'kokoroSpeed', 'volume'];
@@ -238,7 +238,7 @@ async function currentStatus() {
     return lastStatus;
 }
 
-// The tab that asked for the reading — where the HUD belongs.
+// The tab that asked for the reading, where the HUD belongs.
 async function setTtsTab(tabId) {
     await restoreState();
     ttsTabId = tabId ?? null;

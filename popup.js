@@ -1,4 +1,4 @@
-// Paperlight — popup logic.
+// Paperlight popup logic.
 // Theming settings live in chrome.storage.sync; content scripts on PDF
 // pages react instantly via storage.onChanged. The Read-aloud section
 // talks to the service worker (target: 'tts-bg').
@@ -72,7 +72,7 @@ document.addEventListener('DOMContentLoaded', () => {
         writeTimer = setTimeout(flushWrites, 150);
     }
 
-    // The popup is torn down the instant it loses focus — don't lose the
+    // The popup is torn down the instant it loses focus, so don't lose the
     // last slider position with it.
     window.addEventListener('pagehide', flushWrites);
     document.addEventListener('visibilitychange', () => {
@@ -108,7 +108,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!Number.isFinite(intensity)) intensity = 80;
         intensity = Math.min(100, Math.max(0, intensity));
 
-        // 'natural' (Chatterbox) was removed in 2.4.0 — fall back to Fluent.
+        // 'natural' (Chatterbox) was removed in 2.4.0, fall back to Fluent.
         const voice = ['robot', 'fluent'].includes(raw.voice) ? raw.voice : 'robot';
 
         const kokoroSpeaker = KOKORO_VOICES.some((v) => v.id === raw.kokoroSpeaker)
@@ -173,7 +173,7 @@ document.addEventListener('DOMContentLoaded', () => {
     chrome.storage.sync.get(null, (raw) => {
         const next = normalizeSettings(raw);
         // The speaker list narrowed in 2.7.0, so a stored speaker may no longer
-        // exist. It already renders — and reads — as Nicole; persist that so
+        // exist. It already renders, and reads, as Nicole; persist that so
         // storage stops disagreeing with the dropdown.
         if (raw.kokoroSpeaker !== next.kokoroSpeaker) {
             chrome.storage.sync.set({ kokoroSpeaker: next.kokoroSpeaker });
@@ -245,7 +245,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // ------------------------------------------------------ voice options
 
     // One speaker per accent/gender pairing, so the accent goes on the option
-    // itself — four optgroups of one entry each would be pure chrome.
+    // itself, four optgroups of one entry each would be pure chrome.
     function buildSpeakerOptions() {
         for (const voice of KOKORO_VOICES) {
             const option = document.createElement('option');
@@ -308,7 +308,7 @@ document.addEventListener('DOMContentLoaded', () => {
         progressBox.hidden = state.phase !== 'downloading';
         ttsNote.classList.remove('error');
 
-        const detail = state.detail ? ` — ${state.detail}` : '';
+        const detail = state.detail ? `, ${state.detail}` : '';
         const active = !['idle', 'ready', 'error'].includes(state.phase);
 
         switch (state.phase) {
@@ -317,9 +317,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 break;
             case 'downloading':
                 progressLabel.textContent =
-                    `Downloading ${label} voice — ${state.pct}% of ${formatMB(state.total)}`;
+                    `Downloading ${label} voice: ${state.pct}% of ${formatMB(state.total)}`;
                 progressFill.style.width = state.pct + '%';
-                ttsNote.textContent = 'Downloading once — cached for offline use after this.';
+                ttsNote.textContent = 'Downloading once, cached for offline use after this.';
                 break;
             case 'loading':
                 ttsNote.textContent = `Loading ${label} voice${detail}…`;
@@ -341,9 +341,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (state.paused && active) {
-            ttsNote.textContent = `Paused — ${ttsNote.textContent}`;
+            ttsNote.textContent = `Paused: ${ttsNote.textContent}`;
         }
-        // Spin only while the user is waiting on us — speaking is progress, not
+        // Spin only while the user is waiting on us, speaking is progress, not
         // a wait, and a paused reading is waiting on them.
         spinner.hidden = !!state.paused || !BUSY_PHASES.includes(state.phase);
         stopBtn.disabled = !active;
@@ -363,7 +363,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // 'tts-state' is the service worker's stamped status — it carries the
+    // 'tts-state' is the service worker's stamped status, it carries the
     // paused flag and the robot-voice updates that never reach the raw
     // engine channel.
     chrome.runtime.onMessage.addListener((message) => {

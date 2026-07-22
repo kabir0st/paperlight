@@ -1,7 +1,7 @@
-// Paperlight — TTS inference worker.
+// Paperlight TTS inference worker.
 // All transformers.js work (model download, session init, synthesis) runs
 // here, in a dedicated thread. Extension pages of the same extension share
-// one renderer main thread — running inference there froze the popup.
+// one renderer main thread, running inference there froze the popup.
 //
 // Protocol (single in-flight synthesize; the offscreen doc orchestrates):
 //   in : {cmd:'ensure', voice, speaker?}                 -> engine-ready | engine-error
@@ -11,7 +11,7 @@
 import { env } from '@huggingface/transformers';
 import { KokoroEngine, KOKORO_SAMPLE_RATE } from './kokoro-engine.js';
 
-// Worker location is chrome-extension://<id>/tts-worker.js — resolve the
+// Worker location is chrome-extension://<id>/tts-worker.js, resolve the
 // bundled ONNX runtime assets relative to it (no chrome.* APIs in workers).
 env.backends.onnx.wasm.wasmPaths = new URL('vendor/', self.location.href).href;
 env.useBrowserCache = true;
@@ -68,7 +68,7 @@ self.onmessage = async ({ data }) => {
         try {
             const engine = await getEngine(data.voice, data.options || {});
             const samples = await engine.synthesize(data.text, data.options || {});
-            // Transfer the buffer — no copy across the thread boundary.
+            // Transfer the buffer, no copy across the thread boundary.
             self.postMessage(
                 {
                     type: 'audio', id: data.id,

@@ -1,9 +1,14 @@
-# Gentle Page PDF
+# Paperlight — PDF Dark Mode & Read Aloud
 
 A Chrome extension that makes PDFs comfortable to read. It applies gentle color filters to Chrome's built-in PDF viewer — softening the harsh white background into paper-like tones, or flipping the page into a proper dark mode — with an intensity slider to dial the effect in. It can also **read your PDFs aloud**, using voices that run entirely on your machine — no cloud APIs.
 
 ![Chrome Extension](https://img.shields.io/badge/Chrome-Extension-4285F4?logo=google-chrome&logoColor=white)
 ![Manifest V3](https://img.shields.io/badge/Manifest-V3-4285F4?logo=google-chrome&logoColor=white)
+![Offline TTS](https://img.shields.io/badge/TTS-100%25%20offline-3e7b4f)
+
+> Everything runs locally. No account, no telemetry, no server — the PDF text
+> never leaves your machine, and after the one-time voice download the
+> read-aloud works with the network off.
 
 ## Features
 
@@ -27,19 +32,19 @@ A Chrome extension that makes PDFs comfortable to read. It applies gentle color 
 
 1. Clone or download this repository
    ```bash
-   git clone https://github.com/kabir0st/Banana-Gentle-PDF.git
+   git clone https://github.com/kabir0st/paperlight.git
    ```
 2. Open `chrome://extensions/` in Chrome
 3. Enable **Developer mode** (top-right toggle)
-4. Click **Load unpacked** and select the `Banana-Gentle-PDF` folder
-5. (Optional) Pin **Gentle Page PDF** from the puzzle-piece menu
+4. Click **Load unpacked** and select the `paperlight` folder
+5. (Optional) Pin **Paperlight** from the puzzle-piece menu
 
 > **Local PDFs:** to use the extension on `file://` PDFs, open the extension's details page and enable **Allow access to file URLs**.
 
 ## Usage
 
 1. Open any PDF in Chrome
-2. Click the Gentle Page PDF icon
+2. Click the Paperlight icon
 3. Flip the switch on — the popup also tells you whether the current tab is a PDF
 4. Pick a theme (Paper / Sepia / Dark) and adjust the intensity
 
@@ -52,7 +57,7 @@ Settings apply immediately and persist across sessions.
 3. Select text in any PDF (or web page), right-click → **Read aloud**
 4. Or read the whole document: on a PDF tab the popup shows **Read this PDF** with a *from page* field (also available as right-click → **Read this PDF aloud**)
 5. Or skip the toolbar entirely: click the launcher in the bottom-right of any PDF to open the same controls inside the page. While reading, a compact card there shows progress with **Pause** and **Stop** — it stays put when you click away, unlike the popup, and the toolbar badge shows what's happening at any time.
-6. Open **Voice options** in the popup to change the Fluent speaker, speed, engine, and volume. Speaker, speed, and volume apply to the reading already in progress; the engine takes effect on the next one.
+6. Open **Voice options** in the popup to change the Fluent speaker, speed, and volume. All three apply to the reading already in progress — the next sentence picks them up.
 
 ## How it works
 
@@ -78,7 +83,7 @@ Chrome renders PDFs in an out-of-process viewer, which rules out most page-styli
 ### Project structure
 
 ```
-Banana-Gentle-PDF/
+paperlight/
 ├── manifest.json    # Manifest V3 definition
 ├── content.js       # Detects PDFs, builds and injects the theme filters
 ├── hud.js           # In-page launcher, settings panel, activity card
@@ -93,7 +98,7 @@ Banana-Gentle-PDF/
 │   ├── tts-worker.js        # Inference worker: model download + synthesis
 │   ├── kokoro-engine.js     # "Fluent" voice (Kokoro-82M)
 │   ├── kokoro-voices.js     # Speaker list, shared by the engine and popup
-│   ├── tts-common.js        # Caching, audio decode, sentence splitting
+│   ├── tts-common.js        # Asset caching + sentence splitting
 │   └── vendor/phonemize.js  # Vendored from kokoro-js (Apache-2.0)
 ├── vendor/          # ONNX Runtime WASM + pdf.js worker (copied by build.mjs)
 ├── build.mjs        # esbuild bundling script (npm run build)
@@ -137,7 +142,8 @@ without Node).
 
 ## License
 
-Open source — use, modify, and distribute freely.
+ISC (as declared in `package.json`) — use, modify, and distribute freely.
+The vendored `src/vendor/phonemize.js` is from [kokoro-js](https://github.com/hexgrad/kokoro) under Apache-2.0.
 
 ## Author
 

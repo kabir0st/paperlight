@@ -1,7 +1,7 @@
 {
-  "name": "banana-gentle-pdf",
+  "name": "paperlight",
   "version": "1.0.0",
-  "description": "A Chrome extension that makes PDFs comfortable to read. It applies gentle color filters to Chrome's built-in PDF viewer — softening the harsh white background into paper-like tones, or flipping the page into a proper dark mode — with an intensity slider to dial the effect in.",
+  "description": "Paperlight — a Chrome extension that makes PDFs comfortable to read. It applies gentle color filters to Chrome's built-in PDF viewer — softening the harsh white background into paper-like tones, or flipping the page into a proper dark mode — with an intensity slider to dial the effect in. It can also read PDFs aloud using voices that run entirely on your machine.",
   "main": "background.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
@@ -9,16 +9,24 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/kabir0st/Banana-Gentle-PDF.git"
+    "url": "git+https://github.com/kabir0st/paperlight.git"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "chrome-extension",
+    "pdf",
+    "dark-mode",
+    "read-aloud",
+    "text-to-speech",
+    "kokoro",
+    "accessibility"
+  ],
+  "author": "Kabir Tamari (https://kabirtamari.com/)",
   "license": "ISC",
   "type": "module",
   "bugs": {
-    "url": "https://github.com/kabir0st/Banana-Gentle-PDF/issues"
+    "url": "https://github.com/kabir0st/paperlight/issues"
   },
-  "homepage": "https://github.com/kabir0st/Banana-Gentle-PDF#readme",
+  "homepage": "https://github.com/kabir0st/paperlight#readme",
   "private": "true",
   "devDependencies": {
     "esbuild": "^0.28.1"

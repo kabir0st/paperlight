@@ -1,4 +1,4 @@
-// Gentle Page PDF — offscreen document (coordinator).
+// Paperlight — offscreen document (coordinator).
 // Inference runs in a dedicated Web Worker (tts-worker.js) so this thread —
 // which is shared with the popup — stays responsive. This document only:
 //   - orchestrates the worker (one synthesize request in flight),
@@ -354,7 +354,7 @@ async function readPdf(url, fromPage, voice) {
 
 function reportError(voice, error, mySession) {
     if (mySession.aborted) return;
-    console.error('Gentle Page PDF TTS:', error);
+    console.error('Paperlight TTS:', error);
     setStatus({ phase: 'error', voice, error: String(error?.message || error) });
 }
 

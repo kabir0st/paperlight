@@ -1,4 +1,4 @@
-// Gentle Page PDF — service worker.
+// Paperlight — service worker.
 // Owns default settings, the "Read aloud" context menu, the robot voice
 // (chrome.tts), the offscreen document that runs the AI voices, and the
 // status fan-out to the popup, the toolbar badge and the in-page HUD.
@@ -16,7 +16,7 @@ const DEFAULTS = {
 const MENU_ID = 'gentle-read-aloud';
 const MENU_PDF_ID = 'gentle-read-pdf';
 const TEST_SENTENCE =
-    'This is your Gentle Page PDF reading voice. Select text in a PDF, ' +
+    'This is your Paperlight reading voice. Select text in a PDF, ' +
     'right click, and choose Read aloud.';
 
 // Weights no longer reachable by any code path, reclaimed on update:

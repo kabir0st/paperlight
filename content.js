@@ -1,4 +1,4 @@
-// Gentle Page PDF — content script.
+// Paperlight — content script.
 // Injected on every page (and frame), but only ever acts on PDF documents.
 //
 // Chromium's PDF viewer is an out-of-process frame that is NOT an element

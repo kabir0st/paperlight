@@ -1,4 +1,4 @@
-// Gentle Page PDF — in-page controls.
+// Paperlight — in-page controls.
 //
 // Chrome closes the toolbar popup the moment focus leaves it, so everything it
 // offers is also reachable from the page itself:
@@ -186,7 +186,7 @@ function build() {
           <button class="btn primary stop" type="button">Stop</button>
         </div>
       </div>
-      <button class="launcher" type="button" title="Gentle Page PDF" aria-label="Gentle Page PDF" hidden>
+      <button class="launcher" type="button" title="Paperlight" aria-label="Paperlight" hidden>
         ${LAUNCHER_ICON}
       </button>`;
 
@@ -238,7 +238,7 @@ function setPanel(open) {
     if (open && !ui.panel.querySelector('iframe')) {
         const frame = document.createElement('iframe');
         frame.src = chrome.runtime.getURL('popup.html');
-        frame.title = 'Gentle Page PDF settings';
+        frame.title = 'Paperlight settings';
         ui.panel.appendChild(frame);
     }
     ui.panel.hidden = !open;

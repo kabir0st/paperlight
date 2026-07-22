@@ -1,4 +1,4 @@
-// Gentle Page PDF — TTS inference worker.
+// Paperlight — TTS inference worker.
 // All transformers.js work (model download, session init, synthesis) runs
 // here, in a dedicated thread. Extension pages of the same extension share
 // one renderer main thread — running inference there froze the popup.

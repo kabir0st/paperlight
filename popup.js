@@ -1,4 +1,4 @@
-// Gentle Page PDF — popup logic.
+// Paperlight — popup logic.
 // Theming settings live in chrome.storage.sync; content scripts on PDF
 // pages react instantly via storage.onChanged. The Read-aloud section
 // talks to the service worker (target: 'tts-bg').

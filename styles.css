@@ -1,63 +1,51 @@
-/* Gentle Page PDF Styles */
+/* Gentle Page PDF — reading themes for PDF documents.
+ *
+ * Every rule is scoped to html[data-gentle-theme], which content.js sets
+ * only on PDF pages. Normal websites are never touched by this stylesheet.
+ *
+ * The themes are plain CSS filters applied directly to the PDF <embed>.
+ * (SVG filter references and blend-mode overlays don't composite with
+ * Chrome's out-of-process PDF plugin — direct filters do.)
+ *
+ * --gentle-intensity (0–1, set by content.js) scales each effect.
+ */
 
-:root {
-  --gentle-bg-light: #f5f4f0;
-  --gentle-text-light: #2c2c2c;
-  --gentle-bg-dark: #1a1a1a;
-  --gentle-text-dark: #e8e8e8;
+/* Paper: soft cream tint, slightly lifted blacks */
+html[data-gentle-theme='paper'] embed[type='application/pdf'],
+html[data-gentle-theme='paper'] embed[type='application/x-google-chrome-pdf'] {
+    filter: sepia(calc(0.35 * var(--gentle-intensity, 0.8)))
+        contrast(calc(1 - 0.06 * var(--gentle-intensity, 0.8)))
+        brightness(calc(1 - 0.03 * var(--gentle-intensity, 0.8))) !important;
 }
 
-/* Light Mode - Use Multiply Overlay for Paper Effect (Preserves Text Sharpness & Images) */
-.gentle-page-pdf-enabled.gentle-page-pdf-light embed[type="application/pdf"] {
-    /* Sharper text (higher contrast) but still slightly gray (brightness > 1) */
-    filter: contrast(0.93) brightness(1.05) !important; 
+/* Sepia: warmer, old-book tone */
+html[data-gentle-theme='sepia'] embed[type='application/pdf'],
+html[data-gentle-theme='sepia'] embed[type='application/x-google-chrome-pdf'] {
+    filter: sepia(calc(0.65 * var(--gentle-intensity, 0.8)))
+        saturate(calc(1 - 0.15 * var(--gentle-intensity, 0.8)))
+        contrast(calc(1 - 0.07 * var(--gentle-intensity, 0.8)))
+        brightness(calc(1 - 0.05 * var(--gentle-intensity, 0.8))) !important;
 }
 
-.gentle-page-pdf-enabled.gentle-page-pdf-light body::before {
-  content: "";
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  z-index: 2147483647;
-  
-  /* Paper Color - Lighter, smoother cream */
-  background-color: #fdfbf7;
-  
-  /* Texture - Softer, more paper-like grain */
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.4'/%3E%3C/svg%3E");
-  
-  /* Multiply blends the paper color with the white PDF background */
-  mix-blend-mode: multiply;
-  opacity: 0.6; 
+/* Dark: white pages become charcoal, ink becomes off-white.
+ * hue-rotate(180deg) after invert keeps image colors close to correct. */
+html[data-gentle-theme='dark'] embed[type='application/pdf'],
+html[data-gentle-theme='dark'] embed[type='application/x-google-chrome-pdf'] {
+    filter: invert(calc(0.82 + 0.13 * var(--gentle-intensity, 0.8)))
+        hue-rotate(180deg)
+        contrast(calc(1 - 0.08 * var(--gentle-intensity, 0.8)))
+        brightness(calc(1 - 0.04 * var(--gentle-intensity, 0.8))) !important;
 }
 
-
-/* Dark Mode - Use SVG Matrix for Precise Color Mapping */
-.gentle-page-pdf-enabled.gentle-page-pdf-dark embed[type="application/pdf"] {
-    filter: url(#gentle-dark-mode) !important;
-}
-
-.gentle-page-pdf-enabled.gentle-page-pdf-dark body::before {
-  content: "";
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  z-index: 2147483647;
-  
-  /* Texture only for dark mode - subtle grain */
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.6' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.3'/%3E%3C/svg%3E");
-  opacity: 0.15;
-  mix-blend-mode: overlay;
-}
-
-/* Image preservation attempt (Note: This only works if we can access the internal DOM, which is restricted in Chrome's default viewer) */
-/* We keep this here in case the user is viewing a PDF.js rendered PDF or similar */
-img {
-    filter: none !important;
+/* Subtle paper grain over the light themes. Plain alpha compositing only —
+ * blend modes can't reach the plugin's pixels. */
+html[data-gentle-theme='paper'] body::before,
+html[data-gentle-theme='sepia'] body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 2147483647;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.35'/%3E%3C/svg%3E");
+    opacity: calc(0.06 * var(--gentle-intensity, 0.8));
 }

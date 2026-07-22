@@ -1,183 +1,291 @@
+/* Gentle Page PDF — popup.
+ * Quiet, paper-and-ink palette: the popup looks like the reading
+ * experience it controls. The theme picker is three miniature pages. */
+
 :root {
-  --banana-yellow: #FFE135;
-  --banana-dark: #F4C430;
-  --banana-text: #4A3B22;
-  --banana-white: #FFFFFF;
-  --banana-bg: #FFFDF5;
-  --banana-shadow: rgba(244, 196, 48, 0.3);
+  --ink: #2b2a26;
+  --ink-soft: #75705f;
+  --bg: #faf9f6;
+  --card: #ffffff;
+  --line: #e7e4dc;
+  --ok: #3e7b4f;
+
+  /* Miniature page swatches — mirror what each filter does to a page */
+  --page-paper-bg: #f6efe3;
+  --page-paper-ink: #3b3630;
+  --page-sepia-bg: #efe0c4;
+  --page-sepia-ink: #4a3e2e;
+  --page-dark-bg: #232323;
+  --page-dark-ink: #e8e4dc;
+}
+
+* {
+  box-sizing: border-box;
 }
 
 body {
-  width: 300px; /* Slightly wider for better layout */
+  width: 300px;
   margin: 0;
-  padding: 0;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background-color: var(--banana-bg);
-  color: var(--banana-text);
-  overflow-x: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Ubuntu, sans-serif;
+  font-size: 13px;
+  background: var(--bg);
+  color: var(--ink);
 }
 
-.container {
+.popup {
   display: flex;
   flex-direction: column;
-  padding: 20px;
-  box-sizing: border-box;
-  gap: 20px;
 }
 
 /* Header */
 .header {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 5px;
-}
-
-.logo {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.logo img {
-  width: 32px;
-  height: 32px;
-}
-
-.logo h1 {
-  font-size: 18px;
-  font-weight: 700;
-  margin: 0;
-  color: var(--banana-text);
-}
-
-/* Controls */
-.control-group {
-  display: flex;
+  align-items: flex-start;
   justify-content: space-between;
+  gap: 12px;
+  padding: 16px 16px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.wordmark h1 {
+  margin: 0;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.status {
+  display: flex;
   align-items: center;
-  width: 100%;
+  gap: 6px;
+  margin: 5px 0 0;
+  color: var(--ink-soft);
+  font-size: 12px;
 }
 
-.label-text {
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--banana-text);
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--line);
+  flex: none;
 }
 
-/* Toggle Switch - Banana Style */
+.status-dot.on {
+  background: var(--ok);
+}
+
+/* Toggle switch */
 .switch {
   position: relative;
   display: inline-block;
-  width: 44px;
-  height: 24px;
+  width: 40px;
+  height: 22px;
+  flex: none;
+  margin-top: 2px;
 }
 
 .switch input {
+  position: absolute;
   opacity: 0;
-  width: 0;
-  height: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  cursor: pointer;
 }
 
 .slider {
   position: absolute;
-  cursor: pointer;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: #E0E0E0; /* Neutral off state */
-  transition: .4s;
-  border-radius: 24px;
+  inset: 0;
+  background: var(--line);
+  border-radius: 22px;
+  transition: background 0.2s ease;
+  pointer-events: none;
 }
 
-.slider:before {
+.slider::before {
+  content: '';
   position: absolute;
-  content: "";
-  height: 18px;
-  width: 18px;
+  height: 16px;
+  width: 16px;
   left: 3px;
-  bottom: 3px;
-  background-color: white;
-  transition: .4s;
+  top: 3px;
+  background: var(--card);
   border-radius: 50%;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  box-shadow: 0 1px 3px rgba(43, 42, 38, 0.25);
+  transition: transform 0.2s ease;
 }
 
-input:checked + .slider {
-  background-color: var(--banana-yellow);
+.switch input:checked + .slider {
+  background: var(--ink);
 }
 
-input:checked + .slider:before {
-  transform: translateX(20px);
+.switch input:checked + .slider::before {
+  transform: translateX(18px);
 }
 
-/* Theme Buttons */
-.button-group {
+.switch input:focus-visible + .slider {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+/* Controls */
+.controls {
   display: flex;
-  background: #FFF9E0;
-  border-radius: 12px;
-  padding: 4px;
-  gap: 4px;
-  width: 100%;
+  flex-direction: column;
+  gap: 16px;
+  padding: 14px 16px 16px;
+  transition: opacity 0.2s ease;
 }
 
-.group-btn {
-  flex: 1;
-  border: none;
-  background: transparent;
-  padding: 8px;
-  border-radius: 8px;
-  cursor: pointer;
-  font-family: inherit;
+.controls.disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.eyebrow {
+  font-size: 10px;
   font-weight: 600;
-  font-size: 13px;
-  color: var(--banana-text);
-  transition: all 0.2s ease;
-  opacity: 0.6;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  padding: 0;
 }
 
-.group-btn:hover {
-  opacity: 1;
-  background: rgba(255, 225, 53, 0.2);
+/* Theme picker — three miniature pages */
+.themes {
+  border: none;
+  margin: 0;
+  padding: 0;
 }
 
-.group-btn.active {
-  background: var(--banana-yellow);
-  opacity: 1;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-}
-
-/* Footer & Portfolio Button */
-.footer {
-  margin-top: 10px;
+.sheet-row {
   display: flex;
-  justify-content: center;
-  padding-top: 10px;
-  border-top: 1px solid rgba(74, 59, 34, 0.1);
+  gap: 8px;
+  margin-top: 8px;
 }
 
-.portfolio-button {
+.sheet {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.sheet input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.page {
   display: flex;
   align-items: center;
-  gap: 8px;
-  background: linear-gradient(135deg, var(--banana-yellow) 0%, var(--banana-dark) 100%);
-  color: var(--banana-text);
-  text-decoration: none;
-  padding: 8px 16px;
-  border-radius: 50px;
-  font-family: inherit;
+  justify-content: center;
+  width: 100%;
+  height: 56px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 20px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.page-paper { background: var(--page-paper-bg); color: var(--page-paper-ink); }
+.page-sepia { background: var(--page-sepia-bg); color: var(--page-sepia-ink); }
+.page-dark  { background: var(--page-dark-bg);  color: var(--page-dark-ink); }
+
+.sheet-name {
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.sheet:hover .page {
+  border-color: var(--ink-soft);
+}
+
+.sheet input:checked ~ .page {
+  border-color: var(--ink);
+  box-shadow: 0 0 0 1px var(--ink), 0 2px 6px rgba(43, 42, 38, 0.12);
+}
+
+.sheet input:checked ~ .sheet-name {
+  color: var(--ink);
   font-weight: 600;
-  font-size: 14px;
-  box-shadow: 0 4px 12px var(--banana-shadow);
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
-.portfolio-button:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px var(--banana-shadow);
+.sheet input:focus-visible ~ .page {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
 }
 
-.portfolio-emoji {
-  font-size: 18px;
+/* Intensity slider */
+.intensity-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.intensity-value {
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 3px;
+  margin: 6px 0;
+  background: var(--line);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--ink);
+  border: 2px solid var(--bg);
+  box-shadow: 0 1px 3px rgba(43, 42, 38, 0.3);
+}
+
+input[type='range']:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 4px;
+}
+
+/* Footer */
+.footer {
+  display: flex;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-top: 1px solid var(--line);
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+.footer a {
+  color: var(--ink-soft);
+  text-decoration: none;
+  border-bottom: 1px solid var(--line);
+}
+
+.footer a:hover {
+  color: var(--ink);
+  border-bottom-color: var(--ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+  }
 }

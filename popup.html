@@ -69,7 +69,7 @@
             <input type="radio" name="voice" value="fluent">
             <span class="voice-body">
               <span class="voice-name">Fluent</span>
-              <span class="voice-meta">Kokoro AI · 28 speakers, on your device</span>
+              <span class="voice-meta">Kokoro AI · 4 speakers, on your device</span>
             </span>
             <span class="voice-state" data-state-for="fluent">~90 MB</span>
           </label>
@@ -91,15 +91,6 @@
                    aria-label="Speaking speed">
             <span class="opt-value" id="kokoro-speed-value">1.0×</span>
           </div>
-
-          <label class="opt-row">
-            <span class="opt-label">Engine</span>
-            <select id="kokoro-device">
-              <option value="wasm">CPU · ~90 MB</option>
-              <option value="webgpu">WebGPU · experimental</option>
-            </select>
-          </label>
-          <p class="opt-note" id="device-note" hidden></p>
         </div>
 
         <div class="opt-row">
@@ -109,13 +100,6 @@
           <span class="opt-value" id="volume-value">100%</span>
         </div>
       </details>
-
-      <div class="tts-progress" id="tts-progress" hidden>
-        <div class="tts-progress-label" id="tts-progress-label"></div>
-        <div class="tts-progress-track"><div class="tts-progress-fill" id="tts-progress-fill"></div></div>
-      </div>
-
-      <p class="tts-note" id="tts-note">Select text in a PDF, right-click → <strong>Read aloud</strong>. The Fluent voice downloads once, then works offline.</p>
 
       <div class="read-pdf" id="read-pdf-row" hidden>
         <button class="btn primary" id="read-pdf-btn">Read this PDF</button>
@@ -129,11 +113,24 @@
         <button class="btn" id="pause-voice" disabled>Pause</button>
         <button class="btn" id="stop-voice" disabled>Stop</button>
       </div>
+
+      <!-- Activity lives at the very bottom: the note doubles as the live
+           status line, and higher up its changing wording shoved the buttons
+           around mid-reading. -->
+      <div class="tts-progress" id="tts-progress" hidden>
+        <div class="tts-progress-label" id="tts-progress-label"></div>
+        <div class="tts-progress-track"><div class="tts-progress-fill" id="tts-progress-fill"></div></div>
+      </div>
+
+      <div class="tts-status">
+        <span class="spinner" id="tts-spinner" hidden aria-hidden="true"></span>
+        <p class="tts-note" id="tts-note" role="status">Select text in a PDF, right-click → <strong>Read aloud</strong>. The Fluent voice downloads once, then works offline.</p>
+      </div>
     </section>
 
     <footer class="footer">
-      <span id="version">v2.1.0</span>
-      <a href="https://kabir0st.info/" target="_blank" rel="noopener">by kabir0st</a>
+      <span id="version">v2.7.0</span>
+      <a href="https://kabirtamari.com/" target="_blank" rel="noopener">by Kabir Tamari</a>
     </footer>
 
   </main>

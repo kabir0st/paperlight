@@ -8,9 +8,8 @@ const DEFAULTS = {
     theme: 'paper', // 'paper' | 'sepia' | 'dark'
     intensity: 80, // 0–100
     voice: 'robot', // 'robot' | 'fluent'
-    kokoroSpeaker: 'af_heart', // any id from src/kokoro-voices.js
+    kokoroSpeaker: 'af_nicole', // any id from src/kokoro-voices.js
     kokoroSpeed: 1, // 0.5–2.0
-    kokoroDevice: 'wasm', // 'wasm' | 'webgpu' (experimental)
     volume: 100 // 0–100
 };
 
@@ -20,11 +19,15 @@ const TEST_SENTENCE =
     'This is your Gentle Page PDF reading voice. Select text in a PDF, ' +
     'right click, and choose Read aloud.';
 
-// The "Natural" voice (Chatterbox) was dropped in 2.4.0 — gigabytes of
-// weights, WebGPU-only, and it could stall the browser. Reclaim its download,
-// move anyone who had it selected onto Fluent, and drop the readiness flags
-// so each engine re-verifies against what is actually cached.
-const DEAD_WEIGHTS = [/chatterbox-ONNX/];
+// Weights no longer reachable by any code path, reclaimed on update:
+//   - Chatterbox, the "Natural" voice dropped in 2.4.0 — gigabytes of weights,
+//     WebGPU-only, and it could stall the browser.
+//   - Kokoro's fp32 (model.onnx) and fp16 (model_fp16.onnx) exports, which fed
+//     the WebGPU engine dropped in 2.7.0. The CPU build the extension actually
+//     uses is model_quantized.onnx, so it is deliberately not matched here.
+// Anyone who had a removed voice selected moves to Fluent, and every readiness
+// flag is dropped so each engine re-verifies against what is actually cached.
+const DEAD_WEIGHTS = [/chatterbox-ONNX/, /Kokoro-82M[\s\S]*\/model(_fp16)?\.onnx$/];
 
 async function reclaimRemovedVoices() {
     chrome.storage.sync.get({ voice: DEFAULTS.voice }, ({ voice }) => {
@@ -101,7 +104,7 @@ let robotVolume = 1;
 // An offscreen document may only use chrome.runtime — not chrome.storage —
 // so the voice settings are read here and pushed to it with every command,
 // and again whenever they change so a reading in progress follows along.
-const VOICE_KEYS = ['kokoroSpeaker', 'kokoroSpeed', 'kokoroDevice', 'volume'];
+const VOICE_KEYS = ['kokoroSpeaker', 'kokoroSpeed', 'volume'];
 
 async function voiceSettings() {
     const defaults = { voice: DEFAULTS.voice };

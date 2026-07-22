@@ -24,6 +24,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const progressLabel = document.getElementById('tts-progress-label');
     const progressFill = document.getElementById('tts-progress-fill');
     const ttsNote = document.getElementById('tts-note');
+    const spinner = document.getElementById('tts-spinner');
     const testBtn = document.getElementById('test-voice');
     const pauseBtn = document.getElementById('pause-voice');
     const stopBtn = document.getElementById('stop-voice');
@@ -35,16 +36,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const speakerSelect = document.getElementById('kokoro-speaker');
     const speedSlider = document.getElementById('kokoro-speed');
     const speedValue = document.getElementById('kokoro-speed-value');
-    const deviceSelect = document.getElementById('kokoro-device');
-    const deviceNote = document.getElementById('device-note');
     const volumeSlider = document.getElementById('volume');
     const volumeValue = document.getElementById('volume-value');
 
     const DEFAULT_NOTE = ttsNote.innerHTML;
     const VOICE_LABELS = { robot: 'Robot', fluent: 'Fluent' };
-    // The Fluent download depends on the engine: CPU uses the q8 export, and
-    // WebGPU uses fp16 or fp32 depending on what the GPU advertises.
-    const FLUENT_SIZES = { wasm: '~90 MB', webgpu: '155–310 MB' };
+    const FLUENT_SIZE = '~90 MB'; // the q8 export, the only build we load
+    // Phases where the user is waiting on us rather than listening.
+    const BUSY_PHASES = ['starting', 'downloading', 'loading', 'generating'];
 
     version.textContent = 'v' + chrome.runtime.getManifest().version;
 
@@ -53,7 +52,6 @@ document.addEventListener('DOMContentLoaded', () => {
     let tabId = null;
     let settings = null;
     let readyFlags = {};
-    let webgpuOk = null; // null while the adapter probe is in flight
 
     // chrome.storage.sync caps writes at ~120/minute, and dragging a slider
     // fires far more `input` events than that, so slider writes are coalesced.
@@ -121,13 +119,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!Number.isFinite(kokoroSpeed)) kokoroSpeed = 1;
         kokoroSpeed = Math.min(2, Math.max(0.5, kokoroSpeed));
 
-        const kokoroDevice = raw.kokoroDevice === 'webgpu' ? 'webgpu' : 'wasm';
-
         let volume = Number(raw.volume);
         if (!Number.isFinite(volume)) volume = 100;
         volume = Math.min(100, Math.max(0, volume));
 
-        return { enabled, theme, intensity, voice, kokoroSpeaker, kokoroSpeed, kokoroDevice, volume };
+        return { enabled, theme, intensity, voice, kokoroSpeaker, kokoroSpeed, volume };
     }
 
     function renderStatus() {
@@ -164,20 +160,25 @@ document.addEventListener('DOMContentLoaded', () => {
         speakerSelect.value = next.kokoroSpeaker;
         speedSlider.value = String(next.kokoroSpeed);
         speedValue.textContent = next.kokoroSpeed.toFixed(1) + '×';
-        deviceSelect.value = next.kokoroDevice;
         volumeSlider.value = String(next.volume);
         volumeValue.textContent = next.volume + '%';
 
         fluentOptions.hidden = next.voice !== 'fluent';
         renderStatus();
         renderReadyFlags();
-        dropWebGpuDevice();
     }
 
     buildSpeakerOptions();
 
     chrome.storage.sync.get(null, (raw) => {
-        render(normalizeSettings(raw));
+        const next = normalizeSettings(raw);
+        // The speaker list narrowed in 2.7.0, so a stored speaker may no longer
+        // exist. It already renders — and reads — as Nicole; persist that so
+        // storage stops disagreeing with the dropdown.
+        if (raw.kokoroSpeaker !== next.kokoroSpeaker) {
+            chrome.storage.sync.set({ kokoroSpeaker: next.kokoroSpeaker });
+        }
+        render(next);
     });
 
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -243,24 +244,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ------------------------------------------------------ voice options
 
+    // One speaker per accent/gender pairing, so the accent goes on the option
+    // itself — four optgroups of one entry each would be pure chrome.
     function buildSpeakerOptions() {
-        const groups = [
-            ['American · Female', 'US', 'F'],
-            ['American · Male', 'US', 'M'],
-            ['British · Female', 'UK', 'F'],
-            ['British · Male', 'UK', 'M']
-        ];
-        for (const [label, accent, gender] of groups) {
-            const group = document.createElement('optgroup');
-            group.label = label;
-            for (const voice of KOKORO_VOICES) {
-                if (voice.accent !== accent || voice.gender !== gender) continue;
-                const option = document.createElement('option');
-                option.value = voice.id;
-                option.textContent = voice.name;
-                group.appendChild(option);
-            }
-            speakerSelect.appendChild(group);
+        for (const voice of KOKORO_VOICES) {
+            const option = document.createElement('option');
+            option.value = voice.id;
+            option.textContent =
+                `${voice.name} · ${voice.accent === 'UK' ? 'British' : 'American'}`;
+            speakerSelect.appendChild(option);
         }
     }
 
@@ -276,12 +268,6 @@ document.addEventListener('DOMContentLoaded', () => {
         saveSoon({ kokoroSpeed });
     });
 
-    deviceSelect.addEventListener('change', () => {
-        settings.kokoroDevice = deviceSelect.value;
-        chrome.storage.sync.set({ kokoroDevice: deviceSelect.value });
-        renderReadyFlags();
-    });
-
     volumeSlider.addEventListener('input', () => {
         const volume = Number(volumeSlider.value);
         volumeValue.textContent = volume + '%';
@@ -289,71 +275,21 @@ document.addEventListener('DOMContentLoaded', () => {
         saveSoon({ volume });
     });
 
-    // The WebGPU engine — navigator.gpu can exist with no usable adapter
-    // behind it, so actually ask for one before offering it.
-    if (navigator.gpu) {
-        navigator.gpu.requestAdapter().then((adapter) => {
-            if (!adapter) markNoWebGpu();
-        }).catch(markNoWebGpu);
-    } else {
-        markNoWebGpu();
-    }
-    function markNoWebGpu() {
-        webgpuOk = false;
-        const option = deviceSelect.querySelector('option[value="webgpu"]');
-        option.disabled = true;
-        option.textContent = 'WebGPU · unavailable';
-        dropWebGpuDevice();
-    }
-
-    // The adapter probe and the settings read race each other, so whichever
-    // lands second falls back to the CPU engine.
-    function dropWebGpuDevice() {
-        if (webgpuOk !== false || !settings) return;
-        if (settings.kokoroDevice === 'webgpu') {
-            settings.kokoroDevice = 'wasm';
-            deviceSelect.value = 'wasm';
-            chrome.storage.sync.set({ kokoroDevice: 'wasm' });
-        }
-        renderReadyFlags();
-    }
-
-    // A voice counts as ready once its weights are cached. Fluent is tracked
-    // per engine, since CPU and WebGPU download different files.
+    // A voice counts as ready once its weights are cached. `ttsReady_fluent` is
+    // what 2.7.0 writes; the per-device flag covers profiles upgrading from the
+    // 2.3–2.6 releases that tracked CPU and WebGPU separately.
     function renderReadyFlags() {
-        if (!settings) return;
-        const device = settings.kokoroDevice;
-        const fluentReady =
-            readyFlags[`ttsReady_fluent_${device}`] ||
-            // pre-2.3 flag, which was always the CPU build
-            (device === 'wasm' && readyFlags.ttsReady_fluent);
+        const fluentReady = readyFlags.ttsReady_fluent || readyFlags.ttsReady_fluent_wasm;
 
-        if (fluentReady) {
-            voiceStates.fluent.textContent = 'Ready';
-            voiceStates.fluent.classList.add('ready');
-        } else {
-            voiceStates.fluent.textContent = FLUENT_SIZES[device];
-            voiceStates.fluent.classList.remove('ready');
-        }
-
-        deviceNote.hidden = device !== 'webgpu';
-        if (device === 'webgpu') {
-            deviceNote.textContent = fluentReady
-                ? 'Experimental. If speech sounds garbled, switch back to CPU.'
-                : 'Experimental, and a separate download (fp16 where the GPU ' +
-                  'supports it, otherwise fp32). If speech sounds garbled, ' +
-                  'switch back to CPU.';
-        }
+        voiceStates.fluent.textContent = fluentReady ? 'Ready' : FLUENT_SIZE;
+        voiceStates.fluent.classList.toggle('ready', !!fluentReady);
     }
 
     function loadReadyFlags() {
-        chrome.storage.local.get(
-            ['ttsReady_fluent', 'ttsReady_fluent_wasm', 'ttsReady_fluent_webgpu'],
-            (flags) => {
-                readyFlags = flags;
-                renderReadyFlags();
-            }
-        );
+        chrome.storage.local.get(['ttsReady_fluent', 'ttsReady_fluent_wasm'], (flags) => {
+            readyFlags = flags;
+            renderReadyFlags();
+        });
     }
 
     loadReadyFlags();
@@ -407,6 +343,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (state.paused && active) {
             ttsNote.textContent = `Paused — ${ttsNote.textContent}`;
         }
+        // Spin only while the user is waiting on us — speaking is progress, not
+        // a wait, and a paused reading is waiting on them.
+        spinner.hidden = !!state.paused || !BUSY_PHASES.includes(state.phase);
         stopBtn.disabled = !active;
         // Nothing to pause until there is audio in flight.
         pauseBtn.disabled = !active || ['starting', 'downloading'].includes(state.phase);

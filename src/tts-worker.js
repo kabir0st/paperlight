@@ -4,16 +4,12 @@
 // one renderer main thread — running inference there froze the popup.
 //
 // Protocol (single in-flight synthesize; the offscreen doc orchestrates):
-//   in : {cmd:'ensure', voice, device?, speaker?} -> engine-ready | engine-error
+//   in : {cmd:'ensure', voice, speaker?}                 -> engine-ready | engine-error
 //   in : {cmd:'synthesize', id, voice, text, options?}   -> audio | synth-error
 //   out: {type:'download', voice, file, loaded, total, pct}  (progress)
-//
-// The Fluent engine is cached per device: CPU and WebGPU load different
-// weight files, so they are genuinely different engines.
 
 import { env } from '@huggingface/transformers';
 import { KokoroEngine, KOKORO_SAMPLE_RATE } from './kokoro-engine.js';
-import { engineKey } from './tts-common.js';
 
 // Worker location is chrome-extension://<id>/tts-worker.js — resolve the
 // bundled ONNX runtime assets relative to it (no chrome.* APIs in workers).
@@ -21,7 +17,7 @@ env.backends.onnx.wasm.wasmPaths = new URL('vendor/', self.location.href).href;
 env.useBrowserCache = true;
 
 const SAMPLE_RATES = { fluent: KOKORO_SAMPLE_RATE };
-const engines = {}; // engine key -> Promise<engine>
+const engines = {}; // voice -> Promise<engine>
 
 function makeProgressTracker(voice) {
     const files = new Map();
@@ -48,25 +44,20 @@ function makeProgressTracker(voice) {
     };
 }
 
-function getEngine(voice, { device, speaker } = {}) {
-    const key = engineKey(voice, device);
-    if (!engines[key]) {
+function getEngine(voice, { speaker } = {}) {
+    if (!engines[voice]) {
         const progress_callback = makeProgressTracker(voice);
-        engines[key] = KokoroEngine.create({ device, speaker, progress_callback });
-        engines[key].catch(() => { delete engines[key]; });
+        engines[voice] = KokoroEngine.create({ speaker, progress_callback });
+        engines[voice].catch(() => { delete engines[voice]; });
     }
-    return engines[key];
+    return engines[voice];
 }
 
 self.onmessage = async ({ data }) => {
     if (data.cmd === 'ensure') {
         try {
             await getEngine(data.voice, data);
-            self.postMessage({
-                type: 'engine-ready',
-                voice: data.voice,
-                key: engineKey(data.voice, data.device)
-            });
+            self.postMessage({ type: 'engine-ready', voice: data.voice });
         } catch (error) {
             self.postMessage({
                 type: 'engine-error', voice: data.voice,

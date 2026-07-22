@@ -29,3 +29,7 @@ desktop.ini
 
 # Local assistant state
 .claude/
+
+# Input for tools/capture-screenshots.mjs. The generated PNGs are committed;
+# the source document is not, since it is usually someone else's copyright.
+docs/screenshots/sample.pdf

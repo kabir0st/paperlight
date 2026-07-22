@@ -444,17 +444,6 @@ input[type='range']:focus-visible {
   margin: 0;
 }
 
-.opt-note {
-  margin: 8px 0 0;
-  font-size: 11px;
-  line-height: 1.5;
-  color: var(--ink-soft);
-}
-
-.opt-note[hidden] {
-  display: none;
-}
-
 /* Download progress */
 .tts-progress-label {
   font-size: 11px;
@@ -522,6 +511,12 @@ input[type='range']:focus-visible {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+/* An author `display` beats the hidden attribute's UA `display: none`, so
+   without this the row shows on every tab, PDF or not. */
+.read-pdf[hidden] {
+  display: none;
 }
 
 .read-pdf .btn {

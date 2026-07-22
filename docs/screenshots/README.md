@@ -1,46 +1,45 @@
 # Screenshots
 
-The README references six images from this folder. Until they exist, GitHub
-shows broken-image icons in their place, so this is worth 15 minutes.
+The six PNGs here are referenced by the main [README](../../README.md). They are
+generated, not hand-captured, so they stay in step with the code.
 
-Save each as PNG, with exactly these filenames.
-
-| File | What to capture | Suggested width |
+| File | What it shows | Size |
 |---|---|---|
-| `hero.png` | A full Chrome window showing a real PDF with the **Dark** theme on. This is the first thing anyone sees, so pick a good-looking document | 1600 px |
-| `theme-paper.png` | The same PDF page, Paper theme, cropped to just the page content | 800 px |
-| `theme-sepia.png` | The same page and crop, Sepia theme | 800 px |
-| `theme-dark.png` | The same page and crop, Dark theme | 800 px |
-| `popup.png` | The toolbar popup, opened on a PDF tab, with **Voice options** expanded so the speaker and speed controls are visible | 600 px |
-| `reading.png` | The in-page card mid-sentence, showing the progress detail and the Pause / Stop buttons | 600 px |
+| `hero.png` | A real PDF under the Dark theme | 1280x800 |
+| `theme-paper.png` | Same page, Paper theme | 918x645 |
+| `theme-sepia.png` | Same page, Sepia theme | 918x645 |
+| `theme-dark.png` | Same page, Dark theme | 918x645 |
+| `popup.png` | The toolbar popup, Voice options expanded | 600x1280 |
+| `reading.png` | The in-page card mid-sentence | 576x210 |
 
-## Getting them consistent
+`hero.png` is deliberately 1280x800, which is exactly the Chrome Web Store
+screenshot size, so it doubles as the store asset.
 
-The three theme shots only work as a comparison if they line up, so use the
-**same PDF, same page, same scroll position, same crop** for all three. Change
-only the theme between captures. Keep the intensity slider at its default 80%.
+## Regenerating
 
-For `popup.png`, pick the **Fluent** voice first so the speaker dropdown and
-speed slider are actually on screen. Capturing it after the voice has finished
-downloading is better, since the row then reads a green **Ready** instead of a
-download size.
+```bash
+npm install --no-save puppeteer-core
+node tools/capture-screenshots.mjs path/to/document.pdf
+```
 
-For `reading.png`, start a whole-PDF read and capture while it is a few
-sentences in, so the card shows something like `page 3 of 40 - sentence 2/7`.
+The script needs a Chromium-based browser. It looks for Brave, Chrome, then
+Chromium, and `BROWSER=/path/to/binary` overrides that.
 
-## Practical notes
+If you omit the PDF argument it falls back to `docs/screenshots/sample.pdf`,
+which is gitignored. **Supply a document you are happy to publish.** These
+images go into a public README, so do not point it at anything personal. A paper
+with figures works best, since it shows what Dark mode does to images.
 
-- Capture at 2x device pixel ratio if you can, then export at the widths above.
-  Scaled-down screenshots look far sharper than native-resolution ones.
-- Crop out your bookmarks bar, tab strip, and any personal URLs or filenames.
-- A PDF with figures shows off what Dark mode does to images, which is one of
-  the harder things the extension gets right.
-- Keep each file under about 500 KB so the README stays quick to load.
-  `pngquant` or `oxipng` will get you most of the way there.
+## How faithful are they
 
-## Reusing these for the Chrome Web Store
-
-The store listing wants screenshots at exactly **1280x800** or **640x400**, so
-`hero.png` is worth capturing at 1280x800 from the start. The store also takes a
-440x280 small promo tile, which the logo on a paper-cream background fills
-nicely.
+- `popup.png` and `reading.png` are captured from the **real extension**, loaded
+  unpacked into the browser. The popup is the actual `popup.html` running with
+  real `chrome.*` APIs, and the card is drawn by `hud.js` in response to the
+  same `gentle-hud` message the service worker sends during a real reading.
+- The theme shots render a real PDF with pdf.js and then apply the filter string
+  produced by `filterFor()`, which the script reads out of `content.js` at
+  runtime rather than copying. Change a theme's numbers and the screenshots
+  follow on the next run.
+- The one difference from a live browser: these render the PDF to a canvas
+  rather than going through Chrome's built-in PDF viewer, so the viewer's own
+  toolbar is not in frame. The colors and the filter maths are identical.

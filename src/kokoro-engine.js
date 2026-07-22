@@ -11,13 +11,24 @@ const MODEL_ID = 'onnx-community/Kokoro-82M-v1.0-ONNX';
 const STYLE_DIM = 256;
 const MAX_PHONEME_TOKENS = 509;
 
-// CPU (WASM) with the q8 export, deliberately. A WebGPU option shipped
-// briefly in 2.4.0 and was removed: it needed the fp32 weights (a 310 MB
-// download instead of 90 MB) and produced garbled audio — Kokoro is a
-// StyleTTS2 model whose recurrent layers the WebGPU backend has to partition
-// back onto CPU, and the result is not numerically sound today.
-const DEVICE = 'wasm';
-const DTYPE = 'q8';
+// Weights are chosen per device, not fixed:
+//   wasm   — q8 (~90 MB). int8 has no WebGPU kernel, so this is CPU-only.
+//   webgpu — fp16 (~156 MB) when the adapter reports shader-f16, else fp32
+//            (~310 MB). 2.4.0 hardcoded fp32 here and produced garbled audio
+//            on at least one machine, so the precision now follows what the
+//            GPU actually advertises rather than a guess.
+const WASM_DTYPE = 'q8';
+
+async function webgpuDtype() {
+    const adapter = await navigator.gpu?.requestAdapter();
+    if (!adapter) {
+        throw new Error(
+            'WebGPU is not available in this browser. Switch the Fluent engine ' +
+            'back to CPU in the extension popup.'
+        );
+    }
+    return adapter.features?.has('shader-f16') ? 'fp16' : 'fp32';
+}
 
 export const KOKORO_SAMPLE_RATE = 24000;
 
@@ -28,11 +39,16 @@ export class KokoroEngine {
         this.styles = new Map(); // speaker id -> Float32Array
     }
 
-    static async create({ speaker = DEFAULT_KOKORO_VOICE, progress_callback = null } = {}) {
+    static async create({
+        device = 'wasm',
+        speaker = DEFAULT_KOKORO_VOICE,
+        progress_callback = null
+    } = {}) {
+        const dtype = device === 'webgpu' ? await webgpuDtype() : WASM_DTYPE;
         const [model, tokenizer] = await Promise.all([
             StyleTextToSpeech2Model.from_pretrained(MODEL_ID, {
-                dtype: DTYPE,
-                device: DEVICE,
+                dtype,
+                device,
                 progress_callback
             }),
             AutoTokenizer.from_pretrained(MODEL_ID, { progress_callback })

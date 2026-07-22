@@ -16,11 +16,11 @@ A Chrome extension that makes PDFs comfortable to read. It applies gentle color 
 - **PDF-only by design** — the extension activates only on PDF documents and never touches normal websites
 - **Read aloud (local TTS)** — select text and right-click → *Read aloud*, or read the **whole PDF** from any page (popup button or right-click → *Read this PDF aloud*). Two voices:
   - **Robot** — the system voice via `chrome.tts`. No download, quality depends on your OS.
-  - **Fluent** — [Kokoro-82M](https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX), a small neural TTS model with 28 English speakers. **~90 MB** one-time download, runs on the CPU (WASM).
+  - **Fluent** — [Kokoro-82M](https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX), a small neural TTS model with 28 English speakers. **~90 MB** one-time download, running on the CPU (WASM). An **experimental WebGPU engine** is also available — faster, but a separate download and not every GPU renders it correctly.
   - Model downloads are cached (Cache API), so the AI voice downloads once and then works offline. The popup shows download size, live progress, and a Ready badge per voice; the toolbar icon shows a badge (`42%` downloading, `…` generating, `▶` speaking, `⏸` paused) so you get feedback even with the popup closed.
   - Inference runs in a dedicated Web Worker, so the browser and popup stay fully responsive while downloading and speaking.
-- **In-page player** — Chrome closes the popup the moment you click the page, so read-aloud progress also appears in a small card docked in the corner of the tab you're reading, with **Pause** and **Stop**. It follows the Dark theme and disappears a moment after the reading ends.
-- **Voice options** (popup → *Voice options*) — pick any of Kokoro's 28 English speakers (American/British, female/male), set the speaking speed from 0.5× to 2×, and set the playback volume.
+- **In-page controls** — Chrome closes the toolbar popup the moment you click the page, so everything it offers is also reachable from the PDF itself. A small launcher sits in the corner of every PDF tab; it opens the **full settings panel** — themes, intensity, voice, speaker, speed, engine, volume, and *Read this PDF* — without going near the toolbar. While something is being read, a compact card shows progress with **Pause** and **Stop**. Both follow the Dark theme.
+- **Voice options** (popup → *Voice options*) — pick any of Kokoro's 28 English speakers (American/British, female/male), set the speaking speed from 0.5× to 2×, choose the CPU or experimental WebGPU engine, and set the playback volume.
 - **Synced settings** — preferences are saved with `chrome.storage.sync` and follow your Chrome profile
 
 ## Installation
@@ -51,8 +51,8 @@ Settings apply immediately and persist across sessions.
 2. Click **Test voice** to hear it (AI voices download and cache on first use, with a progress bar)
 3. Select text in any PDF (or web page), right-click → **Read aloud**
 4. Or read the whole document: on a PDF tab the popup shows **Read this PDF** with a *from page* field (also available as right-click → **Read this PDF aloud**)
-5. Once reading starts, a small player appears in the corner of the page with **Pause** and **Stop** — it stays put when you click away, unlike the popup. The same controls are in the popup, and the toolbar badge shows what's happening at any time.
-6. Open **Voice options** in the popup to change the Fluent speaker, speed, and volume. All three apply to the reading already in progress.
+5. Or skip the toolbar entirely: click the launcher in the bottom-right of any PDF to open the same controls inside the page. While reading, a compact card there shows progress with **Pause** and **Stop** — it stays put when you click away, unlike the popup, and the toolbar badge shows what's happening at any time.
+6. Open **Voice options** in the popup to change the Fluent speaker, speed, engine, and volume. Speaker, speed, and volume apply to the reading already in progress; the engine takes effect on the next one.
 
 ## How it works
 
@@ -69,8 +69,9 @@ Chrome renders PDFs in an out-of-process viewer, which rules out most page-styli
 - The **Robot** voice uses `chrome.tts` (your operating system's speech engine) straight from the service worker.
 - The Fluent voice runs in an **offscreen document** that spawns a **dedicated Web Worker** for inference — extension pages share one renderer thread, so running models on it would freeze the popup; the worker keeps everything responsive. Text is split into sentences, synthesized chunk-by-chunk by [transformers.js](https://github.com/huggingface/transformers.js) (ONNX Runtime WASM), and streamed into the Web Audio API — sentence *n+1* is generated while sentence *n* plays, with ~30 s of audio buffered ahead as backpressure for long documents.
 - **Whole-PDF reading** fetches the PDF bytes and extracts text page-by-page with [pdf.js](https://mozilla.github.io/pdf.js/); for the Robot voice, pages stream to `chrome.tts` as queued utterances.
-- Model weights download from the Hugging Face Hub on first use and are stored in the browser's Cache API — nothing is re-downloaded afterwards, and no text or audio ever leaves your machine. Kokoro's speakers are separate ~0.5 MB style tensors, so switching speaker costs one small fetch, not a model reload.
-- The **in-page player** is a content script that stays inert until the service worker sends it a status update. Chromium applies a CSS `filter` to every descendant of the element it is set on, so an ordinary overlay would be inverted along with the page under the Dark theme; the player instead renders in the browser's **top layer** (the popover API), which is painted outside ancestor filter effects, inside a shadow root so no page stylesheet can reach it.
+- Model weights download from the Hugging Face Hub on first use and are stored in the browser's Cache API — nothing is re-downloaded afterwards, and no text or audio ever leaves your machine. Kokoro's speakers are separate ~0.5 MB style tensors, so switching speaker costs one small fetch, not a model reload. The CPU and WebGPU engines load different weight files (q8 vs fp16/fp32), so they are cached, tracked, and reported as separate downloads.
+- The **in-page controls** are a content script rendering into a shadow root, so no page stylesheet can reach them. Chromium applies a CSS `filter` to every descendant of the element it is set on, so an ordinary overlay would be inverted along with the page under the Dark theme; these render in the browser's **top layer** (the popover API), which is painted outside ancestor filter effects — verified against Chrome's PDF viewer, where a top-layer element composites cleanly above the plugin.
+- The settings panel is not a second copy of the popup: it embeds `popup.html` itself in an iframe (hence `web_accessible_resources`), so the popup logic runs unchanged and the two surfaces can never drift apart. The framed page reports its own height by `postMessage`, since a content script cannot read across the extension-origin boundary.
 - **Pause** suspends the offscreen `AudioContext`, which freezes the scheduled playback tail and the backpressure loops with it — so synthesis stops too, rather than racing ahead while you're paused. The Robot voice uses `chrome.tts.pause()`.
 - All executable code (transformers.js bundle, ONNX Runtime WASM, pdf.js) ships inside the extension, as Manifest V3 requires.
 
@@ -80,7 +81,7 @@ Chrome renders PDFs in an out-of-process viewer, which rules out most page-styli
 Banana-Gentle-PDF/
 ├── manifest.json    # Manifest V3 definition
 ├── content.js       # Detects PDFs, builds and injects the theme filters
-├── hud.js           # In-page read-aloud player (top layer + shadow DOM)
+├── hud.js           # In-page launcher, settings panel, activity card
 ├── popup.html/css/js# Popup UI: themes, intensity, voice picker, voice options
 ├── background.js    # Defaults, context menu, robot voice, offscreen lifecycle,
 │                    # status fan-out to popup + badge + HUD
@@ -118,7 +119,7 @@ without Node).
 - Depending on the Chrome version, the viewer toolbar may be tinted along with the page (on current Chromium the toolbar stays native).
 - Images inside PDFs are filtered along with everything else. Dark mode uses `hue-rotate(180deg)` after inversion to keep image colors approximately correct, but photos will not look pixel-perfect.
 - Sites that embed their own JavaScript PDF viewers (e.g., PDF.js-based readers that draw to a `<canvas>`) are not Chrome's native viewer and are unaffected.
-- The **Fluent** voice is English-only (American and British) and runs on the CPU, so synthesis is slower on old machines. It deliberately does not use WebGPU: that path needs the 310 MB full-precision weights and produced garbled audio, because Kokoro's recurrent layers get partitioned back onto the CPU by the WebGPU backend.
+- The **Fluent** voice is English-only (American and British). On the CPU it works everywhere, just slower on old machines. The **WebGPU engine is experimental**: Kokoro is a StyleTTS2 model whose recurrent layers the WebGPU backend partitions back onto the CPU, and on some GPUs the result is garbled speech. It is off by default, and switching back to CPU costs nothing (both sets of weights stay cached). The precision follows the adapter — fp16 where `shader-f16` is advertised, fp32 otherwise.
 - The Robot voice's quality depends on your OS speech engine — on Linux it is typically espeak-ng (very robotic).
 - Works in Chrome and Chromium-based browsers with Manifest V3 (Chrome 116+ for the read-aloud feature, which uses the Offscreen API).
 
@@ -130,7 +131,9 @@ without Node).
 - **Settings don't sync between machines** — sign into Chrome so `chrome.storage.sync` can sync. (Downloaded voice models are per-machine.)
 - **"Read aloud" is missing from the right-click menu** — it only appears when text is selected; reload the extension after updating.
 - **Read aloud stops with an audio error** — the browser blocked or suspended playback. Press Stop and start the reading again.
-- **A "Natural" voice and a WebGPU engine option used to be here** — Chatterbox (0.5B, ~1.4 GB, WebGPU-only) and the Fluent WebGPU engine were removed in 2.4.x: the first was a multi-gigabyte download that could stall the browser, the second produced garbled audio. Updating evicts both sets of cached weights and puts you back on a working configuration.
+- **Read-aloud does nothing on a PDF** — if the pages are scans, there is no selectable text to read and the extension now says so. Try selecting text manually: if you cannot select it, neither can the extension.
+- **Fluent sounds garbled** — you are probably on the experimental WebGPU engine. Switch *Voice options → Engine* back to **CPU**.
+- **A "Natural" voice used to be here** — Chatterbox (0.5B, ~1.4 GB, WebGPU-only) was removed in 2.4.0: a multi-gigabyte download that could stall the browser. Updating evicts its cached weights and moves you to Fluent.
 
 ## License
 

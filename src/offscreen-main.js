@@ -7,7 +7,7 @@
 //   - broadcasts status for the popup, the in-page HUD and the badge.
 
 import * as pdfjs from 'pdfjs-dist';
-import { splitSentences } from './tts-common.js';
+import { engineKey, splitSentences } from './tts-common.js';
 import { DEFAULT_KOKORO_VOICE } from './kokoro-voices.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL('vendor/pdf.worker.min.mjs');
@@ -20,10 +20,12 @@ const MAX_BUFFERED_SECONDS = 30; // synth backpressure for long documents
 // only use chrome.runtime — no chrome.storage — so the service worker owns
 // the settings and pushes them here with every command, plus a 'settings'
 // message whenever they change. That keeps speaker/speed/volume live for the
-// reading already in progress.
+// reading already in progress. The device is the exception: it identifies the
+// loaded engine, so a session keeps whichever one it started on.
 let settings = {
     kokoroSpeaker: DEFAULT_KOKORO_VOICE,
     kokoroSpeed: 1,
+    kokoroDevice: 'wasm',
     volume: 100
 };
 
@@ -37,9 +39,13 @@ function applySettings(incoming) {
 }
 
 // Everything the worker needs to build and drive an engine.
-function engineOptions(voice) {
+function engineOptions(voice, device) {
     if (voice !== 'fluent') return {};
-    return { speaker: settings.kokoroSpeaker, speed: settings.kokoroSpeed };
+    return {
+        device: device || settings.kokoroDevice,
+        speaker: settings.kokoroSpeaker,
+        speed: settings.kokoroSpeed
+    };
 }
 
 // ---------------------------------------------------------------- status
@@ -55,7 +61,7 @@ function setStatus(state) {
 let worker = null;
 let requestId = 0;
 const pending = new Map(); // id -> {resolve, reject}
-const readyVoices = new Set();
+const readyEngines = new Set(); // engine keys, e.g. 'fluent_wasm'
 
 function getWorker() {
     if (!worker) {
@@ -110,7 +116,8 @@ function getWorker() {
 }
 
 async function ensureVoice(voice, options) {
-    if (readyVoices.has(voice)) return;
+    const key = engineKey(voice, options.device);
+    if (readyEngines.has(key)) return;
     const w = getWorker();
     await new Promise((resolve, reject) => {
         const onMessage = ({ data }) => {
@@ -125,8 +132,8 @@ async function ensureVoice(voice, options) {
         w.addEventListener('message', onMessage);
         w.postMessage({ cmd: 'ensure', voice, ...options });
     });
-    readyVoices.add(voice);
-    chrome.runtime.sendMessage({ type: 'tts-ready', voice }).catch(() => {});
+    readyEngines.add(key);
+    chrome.runtime.sendMessage({ type: 'tts-ready', voice, key }).catch(() => {});
 }
 
 function synthesize(voice, text, options) {
@@ -246,7 +253,7 @@ class PlaybackSession {
 // Synthesize a list of chunks into the session, with backpressure.
 // describe(i) renders the status detail for chunk i. Options are rebuilt per
 // chunk so a speaker or speed change takes effect from the next sentence.
-async function speakChunks(mySession, voice, chunks, describe) {
+async function speakChunks(mySession, voice, chunks, device, describe) {
     for (let i = 0; i < chunks.length; i++) {
         if (mySession.aborted) return;
         // Report what is actually happening: with audio still buffered we are
@@ -259,7 +266,7 @@ async function speakChunks(mySession, voice, chunks, describe) {
         });
         await mySession.waitForRoom();
         if (mySession.aborted) return;
-        const { samples, sampleRate } = await synthesize(voice, chunks[i], engineOptions(voice));
+        const { samples, sampleRate } = await synthesize(voice, chunks[i], engineOptions(voice, device));
         mySession.play(samples, sampleRate);
         if (mySession.started) {
             setStatus({ phase: 'speaking', voice, detail: describe(i) });
@@ -271,12 +278,13 @@ async function speakChunks(mySession, voice, chunks, describe) {
 
 async function speak(text, voice) {
     stopPlayback();
+    const device = settings.kokoroDevice;
     const mySession = (session = new PlaybackSession(settings.volume / 100));
     try {
         setStatus({ phase: 'loading', voice });
-        await ensureVoice(voice, engineOptions(voice));
+        await ensureVoice(voice, engineOptions(voice, device));
         const chunks = splitSentences(text);
-        await speakChunks(mySession, voice, chunks, (i) =>
+        await speakChunks(mySession, voice, chunks, device, (i) =>
             chunks.length > 1 ? `sentence ${i + 1} of ${chunks.length}` : ''
         );
         await mySession.waitUntilDone();
@@ -298,11 +306,12 @@ async function extractPageText(pdf, pageNumber) {
 
 async function readPdf(url, fromPage, voice) {
     stopPlayback();
+    const device = settings.kokoroDevice;
     const mySession = (session = new PlaybackSession(settings.volume / 100));
     try {
         setStatus({ phase: 'loading', voice, detail: 'opening PDF' });
         const robot = voice === 'robot';
-        if (!robot) await ensureVoice(voice, engineOptions(voice));
+        if (!robot) await ensureVoice(voice, engineOptions(voice, device));
 
         const response = await fetch(url);
         if (!response.ok) throw new Error(`Could not fetch the PDF (${response.status}).`);
@@ -311,10 +320,16 @@ async function readPdf(url, fromPage, voice) {
         const total = pdf.numPages;
         const start = Math.min(Math.max(1, Number(fromPage) || 1), total);
 
+        // A PDF with no extractable text (a scan, or a start page past the end
+        // of the text) would otherwise run this loop to completion in silence
+        // and report idle — indistinguishable from a broken extension.
+        let readAnything = false;
+
         for (let p = start; p <= total; p++) {
             if (mySession.aborted) return;
             const text = await extractPageText(pdf, p);
             if (!text) continue;
+            readAnything = true;
             if (robot) {
                 setStatus({ phase: 'speaking', voice, detail: `page ${p} of ${total}` });
                 chrome.runtime
@@ -322,10 +337,19 @@ async function readPdf(url, fromPage, voice) {
                     .catch(() => {});
             } else {
                 const chunks = splitSentences(text);
-                await speakChunks(mySession, voice, chunks, (i) =>
+                await speakChunks(mySession, voice, chunks, device, (i) =>
                     `page ${p} of ${total} · sentence ${i + 1}/${chunks.length}`
                 );
             }
+        }
+        if (!readAnything) {
+            throw new Error(
+                start > 1
+                    ? `No selectable text from page ${start} to ${total}. If this is a scanned PDF, ` +
+                      'the text is an image and cannot be read aloud.'
+                    : 'No selectable text in this PDF — it is probably a scan, so there is ' +
+                      'nothing to read aloud.'
+            );
         }
         if (!robot) {
             await mySession.waitUntilDone();

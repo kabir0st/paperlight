@@ -1,63 +1,93 @@
-// Gentle Page PDF — in-page activity HUD.
+// Gentle Page PDF — in-page controls.
 //
-// Chrome closes the toolbar popup the moment focus leaves it, so clicking the
-// PDF to scroll or select text takes the only progress readout with it. This
-// script puts a small player in the page itself: it is inert until the service
-// worker sends a `gentle-hud` status update, and it reports downloading /
-// generating / speaking with Pause and Stop controls.
+// Chrome closes the toolbar popup the moment focus leaves it, so everything it
+// offers is also reachable from the page itself:
+//   - a small launcher button on PDF tabs,
+//   - which opens the full settings panel (the popup page, embedded — one
+//     implementation, not a copy),
+//   - plus an activity card with Pause/Stop whenever something is being read.
 //
 // Filter caveat: the theming content script applies a CSS `filter` to <html>
 // (or to the PDF <embed>), and a filter applies to every descendant — a plain
-// overlay would come out inverted under the Dark theme. The HUD therefore
-// lives in the browser's top layer via the popover API, which is painted
-// outside ancestor filter effects. Where the popover API is missing we fall
-// back to a normal fixed element plus a counter-filter that undoes the theme.
+// overlay would come out inverted under the Dark theme. This lives in the
+// browser's top layer via the popover API, which is painted outside ancestor
+// filter effects. Verified against Chrome's PDF viewer: both a top-layer
+// element and the viewer plugin composite correctly, overlay on top.
 
 const HOST_ID = 'gentle-page-pdf-hud';
 const VOICE_LABELS = { robot: 'Robot', fluent: 'Fluent' };
 const IDLE_HIDE_MS = 2500;
+const PANEL_WIDTH = 318; // popup body (300) plus room for its scrollbar
 
 const supportsPopover = typeof HTMLElement.prototype.showPopover === 'function';
+const EXTENSION_ORIGIN = chrome.runtime.getURL('').replace(/\/$/, '');
 
 let host = null;
-let ui = null; // resolved shadow-root nodes
+let ui = null;
 let shown = false;
+let panelOpen = false;
 let hideTimer = null;
-let dismissed = false;
+let cardDismissed = false;
+let cardWanted = false;
 let currentState = null;
+
+// Only PDF documents get the launcher; the activity card can appear anywhere,
+// since "Read aloud" works on selected text in any page.
+function isPdf() {
+    return (
+        document.contentType === 'application/pdf' ||
+        !!document.querySelector(
+            'embed[type="application/pdf"], embed[type="application/x-google-chrome-pdf"]'
+        )
+    );
+}
 
 const CSS = `
 :host { all: initial; }
 * { box-sizing: border-box; }
-.card {
-  width: 288px;
-  padding: 12px 14px;
-  border: 1px solid #e7e4dc;
+.wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+  font: 13px/1.4 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Ubuntu, sans-serif;
+}
+
+/* Launcher */
+.launcher {
+  width: 42px; height: 42px; padding: 0;
+  border: 1px solid #e7e4dc; border-radius: 50%;
+  background: #faf9f6; color: #2b2a26;
+  box-shadow: 0 4px 14px rgba(43, 42, 38, 0.22);
+  cursor: pointer; opacity: 0.45;
+  display: flex; align-items: center; justify-content: center;
+  transition: opacity 150ms ease, transform 150ms ease;
+}
+.launcher:hover, .launcher:focus-visible { opacity: 1; transform: translateY(-1px); }
+.launcher svg { width: 20px; height: 20px; }
+.launcher[hidden], .card[hidden], .panel[hidden] { display: none; }
+
+/* Settings panel — the popup page itself, embedded */
+.panel {
+  width: ${PANEL_WIDTH}px;
   border-radius: 12px;
   background: #faf9f6;
-  color: #2b2a26;
-  font: 13px/1.4 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Ubuntu, sans-serif;
+  box-shadow: 0 10px 34px rgba(43, 42, 38, 0.3);
+  overflow: hidden;
+}
+.panel-bar {
+  display: flex; justify-content: flex-end; align-items: center;
+  height: 26px; padding: 0 6px; background: #f1efe8; border-bottom: 1px solid #e7e4dc;
+}
+.panel iframe { display: block; width: 100%; height: 560px; border: 0; background: #faf9f6; }
+
+/* Activity card */
+.card {
+  width: 288px; padding: 12px 14px;
+  border: 1px solid #e7e4dc; border-radius: 12px;
+  background: #faf9f6; color: #2b2a26;
   box-shadow: 0 6px 24px rgba(43, 42, 38, 0.18);
-  opacity: 0;
-  transform: translateY(6px);
-  transition: opacity 160ms ease, transform 160ms ease;
 }
-.card.visible { opacity: 1; transform: none; }
-/* Follow the reading theme — a cream card glares on a dark page. */
-.card.dark {
-  border-color: #3a3934;
-  background: #232323;
-  color: #e8e4dc;
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
-}
-.card.dark .detail, .card.dark .close { color: #a09a8c; }
-.card.dark .close:hover { background: #33322e; color: #e8e4dc; }
-.card.dark .track { background: #3a3934; }
-.card.dark .fill { background: #e8e4dc; }
-.card.dark .btn { border-color: #3a3934; background: #2c2b28; color: #e8e4dc; }
-.card.dark .btn:hover { border-color: #575550; }
-.card.dark .btn.primary { background: #e8e4dc; border-color: #e8e4dc; color: #232323; }
-.card.dark .btn.primary:hover { background: #ffffff; }
 .top { display: flex; align-items: flex-start; gap: 9px; }
 .dot {
   width: 8px; height: 8px; margin-top: 4px; border-radius: 50%;
@@ -66,10 +96,7 @@ const CSS = `
 .dot.still { animation: none; }
 .dot.bad { background: #a4442f; animation: none; }
 @keyframes pulse { 0%, 100% { opacity: 1 } 50% { opacity: 0.35 } }
-@media (prefers-reduced-motion: reduce) {
-  .dot { animation: none; }
-  .card { transition: none; }
-}
+@media (prefers-reduced-motion: reduce) { .dot { animation: none } .launcher { transition: none } }
 .text { flex: 1; min-width: 0; }
 .phase { font-weight: 600; }
 .detail {
@@ -77,29 +104,45 @@ const CSS = `
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .detail:empty { display: none; }
-.close {
-  flex: none; width: 20px; height: 20px; padding: 0; margin: -2px -4px 0 0;
+.icon-btn {
+  flex: none; width: 20px; height: 20px; padding: 0; margin-top: -2px;
   border: 0; border-radius: 5px; background: transparent; color: #75705f;
   font-size: 13px; line-height: 1; cursor: pointer;
 }
-.close:hover { background: #efece4; color: #2b2a26; }
-.track {
-  margin-top: 9px; height: 5px; border-radius: 3px;
-  background: #e7e4dc; overflow: hidden;
-}
+.icon-btn:hover { background: #efece4; color: #2b2a26; }
+.track { margin-top: 9px; height: 5px; border-radius: 3px; background: #e7e4dc; overflow: hidden; }
 .track[hidden] { display: none; }
 .fill { height: 100%; width: 0; background: #2b2a26; transition: width 200ms ease; }
 .actions { display: flex; gap: 8px; margin-top: 11px; }
 .btn {
   flex: 1; padding: 6px 10px; border: 1px solid #e7e4dc; border-radius: 7px;
-  background: #ffffff; color: #2b2a26; font: inherit; font-size: 12px;
-  cursor: pointer;
+  background: #ffffff; color: #2b2a26; font: inherit; font-size: 12px; cursor: pointer;
 }
 .btn:hover { border-color: #cfcabc; }
 .btn.primary { background: #2b2a26; border-color: #2b2a26; color: #faf9f6; }
 .btn.primary:hover { background: #3c3a34; }
 .actions[hidden], .btn[hidden] { display: none; }
+
+/* Follow the reading theme — a cream card glares on a dark page. */
+.dark .launcher, .dark .card {
+  border-color: #3a3934; background: #232323; color: #e8e4dc;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+}
+.dark .panel { box-shadow: 0 10px 34px rgba(0, 0, 0, 0.6); }
+.dark .detail, .dark .icon-btn { color: #a09a8c; }
+.dark .icon-btn:hover { background: #33322e; color: #e8e4dc; }
+.dark .track { background: #3a3934; }
+.dark .fill { background: #e8e4dc; }
+.dark .btn { border-color: #3a3934; background: #2c2b28; color: #e8e4dc; }
+.dark .btn:hover { border-color: #575550; }
+.dark .btn.primary { background: #e8e4dc; border-color: #e8e4dc; color: #232323; }
 `;
+
+const LAUNCHER_ICON =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" ' +
+    'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H11v16H5.5A1.5 1.5 0 0 1 4 18.5z"/>' +
+    '<path d="M14.5 8.5a4 4 0 0 1 0 7"/><path d="M17.5 6a7 7 0 0 1 0 12"/></svg>';
 
 function build() {
     if (host && host.isConnected) return;
@@ -111,17 +154,9 @@ function build() {
     // Inline + !important so no page stylesheet can move or restyle the host.
     // `display` is deliberately left alone: the UA controls it for popovers.
     const hostStyle = {
-        position: 'fixed',
-        inset: 'auto 16px 16px auto',
-        width: 'auto',
-        height: 'auto',
-        margin: '0',
-        padding: '0',
-        border: '0',
-        background: 'transparent',
-        overflow: 'visible',
-        'z-index': '2147483647',
-        'color-scheme': 'light'
+        position: 'fixed', inset: 'auto 16px 16px auto', width: 'auto', height: 'auto',
+        margin: '0', padding: '0', border: '0', background: 'transparent',
+        overflow: 'visible', 'z-index': '2147483647', 'color-scheme': 'light'
     };
     for (const [prop, value] of Object.entries(hostStyle)) {
         host.style.setProperty(prop, value, 'important');
@@ -132,47 +167,57 @@ function build() {
     const style = document.createElement('style');
     style.textContent = CSS;
 
-    const card = document.createElement('div');
-    card.className = 'card';
-    card.innerHTML = `
-      <div class="top">
-        <span class="dot"></span>
-        <div class="text">
-          <div class="phase"></div>
-          <div class="detail"></div>
-        </div>
-        <button class="close" type="button" title="Hide" aria-label="Hide">✕</button>
+    const wrap = document.createElement('div');
+    wrap.className = 'wrap';
+    wrap.innerHTML = `
+      <div class="panel" hidden>
+        <div class="panel-bar"><button class="icon-btn close-panel" type="button" title="Close" aria-label="Close">✕</button></div>
       </div>
-      <div class="track" hidden><div class="fill"></div></div>
-      <div class="actions">
-        <button class="btn toggle" type="button">Pause</button>
-        <button class="btn primary stop" type="button">Stop</button>
-      </div>`;
+      <div class="card" hidden>
+        <div class="top">
+          <span class="dot"></span>
+          <div class="text"><div class="phase"></div><div class="detail"></div></div>
+          <button class="icon-btn open-settings" type="button" title="Settings" aria-label="Settings">⚙</button>
+          <button class="icon-btn close-card" type="button" title="Hide" aria-label="Hide">✕</button>
+        </div>
+        <div class="track" hidden><div class="fill"></div></div>
+        <div class="actions">
+          <button class="btn toggle" type="button">Pause</button>
+          <button class="btn primary stop" type="button">Stop</button>
+        </div>
+      </div>
+      <button class="launcher" type="button" title="Gentle Page PDF" aria-label="Gentle Page PDF" hidden>
+        ${LAUNCHER_ICON}
+      </button>`;
 
-    root.append(style, card);
+    root.append(style, wrap);
     (document.body || document.documentElement).appendChild(host);
 
     ui = {
-        card,
-        dot: card.querySelector('.dot'),
-        phase: card.querySelector('.phase'),
-        detail: card.querySelector('.detail'),
-        track: card.querySelector('.track'),
-        fill: card.querySelector('.fill'),
-        actions: card.querySelector('.actions'),
-        toggle: card.querySelector('.toggle'),
-        stop: card.querySelector('.stop'),
-        close: card.querySelector('.close')
+        wrap,
+        panel: wrap.querySelector('.panel'),
+        launcher: wrap.querySelector('.launcher'),
+        card: wrap.querySelector('.card'),
+        dot: wrap.querySelector('.dot'),
+        phase: wrap.querySelector('.phase'),
+        detail: wrap.querySelector('.detail'),
+        track: wrap.querySelector('.track'),
+        fill: wrap.querySelector('.fill'),
+        actions: wrap.querySelector('.actions'),
+        toggle: wrap.querySelector('.toggle'),
+        stop: wrap.querySelector('.stop')
     };
 
-    ui.close.addEventListener('click', () => {
-        dismissed = true;
-        hide();
+    wrap.querySelector('.close-card').addEventListener('click', () => {
+        cardDismissed = true;
+        cardWanted = false;
+        refreshVisibility();
     });
+    wrap.querySelector('.close-panel').addEventListener('click', () => setPanel(false));
+    wrap.querySelector('.open-settings').addEventListener('click', () => setPanel(true));
+    ui.launcher.addEventListener('click', () => setPanel(!panelOpen));
     ui.stop.addEventListener('click', () => send('stop'));
-    ui.toggle.addEventListener('click', () => {
-        send(currentState?.paused ? 'resume' : 'pause');
-    });
+    ui.toggle.addEventListener('click', () => send(currentState?.paused ? 'resume' : 'pause'));
 }
 
 // Every call is guarded: after an extension reload the old content script is
@@ -185,15 +230,58 @@ function send(cmd) {
     }
 }
 
-// Match the card to the reading theme, and — only on the fallback path, where
-// the HUD is a plain descendant of <html> and does inherit the theme filter —
-// undo that filter. Just the Dark theme needs undoing; Paper and Sepia only
-// tint the card, which reads as intentional.
+// The panel is the popup page itself, loaded on first open so an unopened
+// panel costs nothing.
+function setPanel(open) {
+    build();
+    panelOpen = open;
+    if (open && !ui.panel.querySelector('iframe')) {
+        const frame = document.createElement('iframe');
+        frame.src = chrome.runtime.getURL('popup.html');
+        frame.title = 'Gentle Page PDF settings';
+        ui.panel.appendChild(frame);
+    }
+    ui.panel.hidden = !open;
+    refreshVisibility();
+}
+
+// The launcher belongs to PDF tabs; the card appears wherever a reading is.
+function refreshVisibility() {
+    build(); // idempotent, and the surfaces below need it to exist
+    // The panel reports the same status and carries the same controls, so the
+    // card would only be a second copy fighting it for space.
+    ui.card.hidden = !cardWanted || panelOpen;
+    ui.launcher.hidden = !isPdf() || panelOpen;
+    const anythingVisible = !ui.launcher.hidden || !ui.card.hidden || panelOpen;
+    if (anythingVisible) reveal();
+    else conceal();
+}
+
+function reveal() {
+    build();
+    applyTheme();
+    if (shown) return;
+    if (supportsPopover) { try { host.showPopover(); } catch {} }
+    else host.style.setProperty('display', 'block', 'important');
+    shown = true;
+}
+
+function conceal() {
+    if (!shown || !host) return;
+    if (supportsPopover) { try { host.hidePopover(); } catch {} }
+    else host.style.setProperty('display', 'none', 'important');
+    shown = false;
+}
+
+// Match the surfaces to the reading theme, and — only on the fallback path,
+// where this is a plain descendant of <html> and does inherit the theme
+// filter — undo that filter. Just the Dark theme needs undoing; Paper and
+// Sepia only tint the card, which reads as intentional.
 function applyTheme() {
-    if (!host) return;
+    if (!host || !ui) return;
     chrome.storage.sync.get({ enabled: false, theme: 'paper', intensity: 80 }, (s) => {
         const dark = s.enabled === true && s.theme === 'dark';
-        ui.card.classList.toggle('dark', dark);
+        ui.wrap.classList.toggle('dark', dark);
 
         if (supportsPopover || document.contentType !== 'application/pdf') return;
         if (!dark) {
@@ -211,36 +299,6 @@ function applyTheme() {
             'important'
         );
     });
-}
-
-function show() {
-    build();
-    applyTheme();
-    if (!shown) {
-        if (supportsPopover) {
-            try { host.showPopover(); } catch {}
-        } else {
-            host.style.setProperty('display', 'block', 'important');
-        }
-        shown = true;
-        // Next frame, so the entrance transition actually runs.
-        requestAnimationFrame(() => ui.card.classList.add('visible'));
-    }
-    clearTimeout(hideTimer);
-}
-
-function hide() {
-    if (!shown || !host) return;
-    ui.card.classList.remove('visible');
-    clearTimeout(hideTimer);
-    hideTimer = setTimeout(() => {
-        if (supportsPopover) {
-            try { host.hidePopover(); } catch {}
-        } else {
-            host.style.setProperty('display', 'none', 'important');
-        }
-        shown = false;
-    }, 180);
 }
 
 function formatMB(bytes) {
@@ -275,11 +333,12 @@ function describe(state) {
 
 function render(state) {
     if (!state) return;
-    // A fresh session re-enables a HUD the user dismissed earlier.
-    if (state.phase === 'starting') dismissed = false;
+    build();
+    // A fresh session re-enables a card the user dismissed earlier.
+    if (state.phase === 'starting') cardDismissed = false;
 
     const parts = describe(state);
-    const wasShowing = shown;
+    const wasShowing = cardWanted;
     currentState = state;
 
     if (!parts) {
@@ -291,15 +350,18 @@ function render(state) {
             ui.track.hidden = true;
             ui.actions.hidden = true;
             clearTimeout(hideTimer);
-            hideTimer = setTimeout(hide, IDLE_HIDE_MS);
+            hideTimer = setTimeout(() => { cardWanted = false; refreshVisibility(); }, IDLE_HIDE_MS);
         } else {
-            hide();
+            cardWanted = false;
+            refreshVisibility();
         }
         return;
     }
-    if (dismissed) return;
+    if (cardDismissed) return;
 
-    show();
+    clearTimeout(hideTimer);
+    cardWanted = true;
+    refreshVisibility();
 
     ui.phase.textContent = state.paused ? `Paused · ${parts.phase}` : parts.phase;
     ui.detail.textContent = parts.detail;
@@ -318,7 +380,7 @@ function render(state) {
     if (parts.bad) {
         // Errors linger; everything else is driven by the next update.
         clearTimeout(hideTimer);
-        hideTimer = setTimeout(hide, 12000);
+        hideTimer = setTimeout(() => { cardWanted = false; refreshVisibility(); }, 12000);
     }
 }
 
@@ -326,12 +388,34 @@ chrome.runtime.onMessage.addListener((message) => {
     if (message?.type === 'gentle-hud') render(message.state);
 });
 
-// Keep the card in step if the theme is changed while it is on screen.
+// Keep the surfaces in step if the theme is changed while they are on screen.
 chrome.storage.onChanged.addListener((changes, namespace) => {
     if (namespace === 'sync' && shown) applyTheme();
 });
 
-// Reloading the page mid-reading should bring the HUD back. This is the only
+// The embedded popup reports its height so the panel fits its content exactly.
+window.addEventListener('message', (event) => {
+    if (event.origin !== EXTENSION_ORIGIN) return;
+    if (event.data?.type !== 'gentle-panel-height' || !ui) return;
+    const frame = ui.panel.querySelector('iframe');
+    if (!frame) return;
+    const height = Math.min(Number(event.data.height) || 560, Math.round(innerHeight * 0.8));
+    frame.style.height = height + 'px';
+});
+
+// Show the launcher on PDF tabs. Chrome's PDF viewer attaches its content
+// after document_end, so re-check for a while rather than only once.
+if (isPdf()) {
+    refreshVisibility();
+} else {
+    let tries = 0;
+    const poll = setInterval(() => {
+        if (isPdf()) { refreshVisibility(); clearInterval(poll); }
+        else if (++tries > 10) clearInterval(poll);
+    }, 500);
+}
+
+// Reloading the page mid-reading should bring the card back. This is the only
 // thing the script does unprompted, so it must not cost anything at startup:
 // a session restore loads every tab at once, and each message would wake the
 // service worker at the worst possible moment. Ask only for a tab the user is

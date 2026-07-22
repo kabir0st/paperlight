@@ -10,6 +10,7 @@ const DEFAULTS = {
     voice: 'robot', // 'robot' | 'fluent'
     kokoroSpeaker: 'af_heart', // any id from src/kokoro-voices.js
     kokoroSpeed: 1, // 0.5–2.0
+    kokoroDevice: 'wasm', // 'wasm' | 'webgpu' (experimental)
     volume: 100 // 0–100
 };
 
@@ -19,21 +20,11 @@ const TEST_SENTENCE =
     'This is your Gentle Page PDF reading voice. Select text in a PDF, ' +
     'right click, and choose Read aloud.';
 
-// Two things were dropped after 2.3.0, and both left multi-hundred-megabyte
-// weights behind:
-//   - the "Natural" voice (Chatterbox): gigabytes, WebGPU-only, could stall
-//     the browser;
-//   - the WebGPU engine for Fluent: it needed the 310 MB fp32 export and
-//     produced garbled audio.
-// Reclaim both, move anyone who selected them back to something that works,
-// and drop the readiness flags so the remaining voice re-verifies against
-// what is actually cached.
-const DEAD_WEIGHTS = [
-    /chatterbox-ONNX/,
-    // Kokoro fp32 — note the anchor, so model_quantized.onnx (the one still
-    // in use) is not matched.
-    /Kokoro-82M[^?]*\/model\.onnx(_data)?$/
-];
+// The "Natural" voice (Chatterbox) was dropped in 2.4.0 — gigabytes of
+// weights, WebGPU-only, and it could stall the browser. Reclaim its download,
+// move anyone who had it selected onto Fluent, and drop the readiness flags
+// so each engine re-verifies against what is actually cached.
+const DEAD_WEIGHTS = [/chatterbox-ONNX/];
 
 async function reclaimRemovedVoices() {
     chrome.storage.sync.get({ voice: DEFAULTS.voice }, ({ voice }) => {
@@ -43,7 +34,6 @@ async function reclaimRemovedVoices() {
         const stale = Object.keys(all).filter((key) => key.startsWith('ttsReady_'));
         if (stale.length) chrome.storage.local.remove(stale);
     });
-    chrome.storage.sync.remove('kokoroDevice');
     try {
         for (const name of ['transformers-cache', 'gentle-tts-assets']) {
             const cache = await caches.open(name);
@@ -111,7 +101,7 @@ let robotVolume = 1;
 // An offscreen document may only use chrome.runtime — not chrome.storage —
 // so the voice settings are read here and pushed to it with every command,
 // and again whenever they change so a reading in progress follows along.
-const VOICE_KEYS = ['kokoroSpeaker', 'kokoroSpeed', 'volume'];
+const VOICE_KEYS = ['kokoroSpeaker', 'kokoroSpeed', 'kokoroDevice', 'volume'];
 
 async function voiceSettings() {
     const defaults = { voice: DEFAULTS.voice };

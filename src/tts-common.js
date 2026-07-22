@@ -1,5 +1,11 @@
 // Shared helpers for the TTS engines.
 
+// Default speaker for the "Natural" (Chatterbox) voice. Decoded on the
+// offscreen document (workers have no AudioContext) and handed to the worker.
+export const REFERENCE_VOICE_URL =
+    'https://huggingface.co/onnx-community/chatterbox-ONNX/resolve/main/default_voice.wav';
+export const REFERENCE_SAMPLE_RATE = 24000;
+
 const ASSET_CACHE = 'gentle-tts-assets';
 
 // Fetch with Cache API persistence, so voice files and reference audio

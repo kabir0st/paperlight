@@ -10,6 +10,7 @@ const DEFAULTS = {
 };
 
 const MENU_ID = 'gentle-read-aloud';
+const MENU_PDF_ID = 'gentle-read-pdf';
 const TEST_SENTENCE =
     'This is your Gentle Page PDF reading voice. Select text in a PDF, ' +
     'right click, and choose Read aloud.';
@@ -35,12 +36,24 @@ chrome.runtime.onInstalled.addListener(() => {
             title: 'Read aloud',
             contexts: ['selection']
         });
+        chrome.contextMenus.create({
+            id: MENU_PDF_ID,
+            title: 'Read this PDF aloud',
+            contexts: ['page'],
+            documentUrlPatterns: [
+                '*://*/*.pdf', '*://*/*.pdf?*', '*://*/*.pdf#*',
+                'file://*/*.pdf', 'file://*/*.pdf#*'
+            ]
+        });
     });
+    chrome.action.setBadgeBackgroundColor({ color: '#2b2a26' });
 });
 
 chrome.contextMenus.onClicked.addListener((info) => {
     if (info.menuItemId === MENU_ID && info.selectionText) {
         speak(info.selectionText);
+    } else if (info.menuItemId === MENU_PDF_ID && info.pageUrl) {
+        readPdf(info.pageUrl, 1);
     }
 });
 
@@ -49,6 +62,7 @@ chrome.contextMenus.onClicked.addListener((info) => {
 async function speak(text) {
     const { voice } = await chrome.storage.sync.get({ voice: DEFAULTS.voice });
     await stopAll();
+    setStatus({ phase: 'starting', voice });
     if (voice === 'robot') {
         setStatus({ phase: 'speaking', voice: 'robot' });
         chrome.tts.speak(text, {
@@ -61,8 +75,23 @@ async function speak(text) {
         });
     } else {
         await ensureOffscreen();
-        chrome.runtime.sendMessage({ target: 'tts-offscreen', cmd: 'speak', text, voice });
+        chrome.runtime
+            .sendMessage({ target: 'tts-offscreen', cmd: 'speak', text, voice })
+            .catch(() => {});
     }
+}
+
+// Whole-document reading. Text extraction always happens in the offscreen
+// document (pdf.js); for the robot voice it streams pages back here and
+// chrome.tts queues them.
+async function readPdf(url, fromPage) {
+    const { voice } = await chrome.storage.sync.get({ voice: DEFAULTS.voice });
+    await stopAll();
+    setStatus({ phase: 'starting', voice });
+    await ensureOffscreen();
+    chrome.runtime
+        .sendMessage({ target: 'tts-offscreen', cmd: 'read-pdf', url, fromPage, voice })
+        .catch(() => {});
 }
 
 async function stopAll() {
@@ -101,20 +130,55 @@ async function ensureOffscreen() {
 // ---------------------------------------------------------------- status
 
 // Mirror the latest TTS status into session storage so the popup can
-// render current state when it opens (the SW may restart at any time).
+// render current state when it opens (the SW may restart at any time),
+// and reflect activity on the toolbar badge so there is feedback even
+// with the popup closed.
+function badgeFor(state) {
+    switch (state?.phase) {
+        case 'downloading': return (state.pct ?? 0) + '%';
+        case 'starting':
+        case 'loading':
+        case 'generating': return '…';
+        case 'speaking': return '▶';
+        case 'error': return '!';
+        default: return '';
+    }
+}
+
 function setStatus(state) {
-    chrome.storage.session
-        .set({ ttsStatus: { ...state, at: Date.now() } })
-        .catch(() => {});
+    const stamped = { ...state, at: state.at || Date.now() };
+    chrome.storage.session.set({ ttsStatus: stamped }).catch(() => {});
+    chrome.action.setBadgeText({ text: badgeFor(stamped) }).catch(() => {});
+}
+
+// Robot whole-PDF reading: the offscreen document extracts pages and
+// streams them here; chrome.tts queues one utterance per page.
+function robotSay(text, page, pages) {
+    chrome.tts.speak(text, {
+        enqueue: true,
+        onEvent: (event) => {
+            if (event.type === 'start') {
+                setStatus({ phase: 'speaking', voice: 'robot', detail: `page ${page} of ${pages}` });
+            } else if (['end', 'cancelled', 'error'].includes(event.type)) {
+                chrome.tts.isSpeaking((speaking) => {
+                    if (!speaking) setStatus({ phase: 'idle' });
+                });
+            }
+        }
+    });
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message?.type === 'tts-status') {
-        chrome.storage.session.set({ ttsStatus: message.state }).catch(() => {});
+        setStatus(message.state);
         return;
     }
     if (message?.type === 'tts-ready') {
         chrome.storage.local.set({ [`ttsReady_${message.voice}`]: true }).catch(() => {});
+        return;
+    }
+    if (message?.type === 'robot-say') {
+        robotSay(message.text, message.page, message.pages);
         return;
     }
     if (message?.target !== 'tts-bg') return;
@@ -124,6 +188,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             break;
         case 'speak':
             if (message.text) speak(message.text);
+            break;
+        case 'read-pdf':
+            if (message.url) readPdf(message.url, message.fromPage || 1);
             break;
         case 'stop':
             stopAll().then(() => setStatus({ phase: 'idle' }));

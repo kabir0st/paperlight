@@ -26,6 +26,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const ttsNote = document.getElementById('tts-note');
     const testBtn = document.getElementById('test-voice');
     const stopBtn = document.getElementById('stop-voice');
+    const readPdfRow = document.getElementById('read-pdf-row');
+    const readPdfBtn = document.getElementById('read-pdf-btn');
+    const fromPageInput = document.getElementById('from-page');
 
     const DEFAULT_NOTE = ttsNote.innerHTML;
     const VOICE_LABELS = { robot: 'Robot', fluent: 'Fluent', natural: 'Natural' };
@@ -34,6 +37,7 @@ document.addEventListener('DOMContentLoaded', () => {
     version.textContent = 'v' + chrome.runtime.getManifest().version;
 
     let tabIsPdf = null; // null = unknown
+    let tabHref = null;
 
     // ------------------------------------------------------------ theming
 
@@ -96,6 +100,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!tab || tab.id === undefined) return;
         chrome.tabs.sendMessage(tab.id, { type: 'gentle-ping' }, (response) => {
             tabIsPdf = !chrome.runtime.lastError && !!(response && response.isPdf);
+            tabHref = tabIsPdf ? response.href || null : null;
+            readPdfRow.hidden = !tabHref;
             renderStatus();
         });
     });
@@ -131,6 +137,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     stopBtn.addEventListener('click', () => {
         chrome.runtime.sendMessage({ target: 'tts-bg', cmd: 'stop' });
+    });
+
+    readPdfBtn.addEventListener('click', () => {
+        if (!tabHref) return;
+        chrome.runtime.sendMessage({
+            target: 'tts-bg',
+            cmd: 'read-pdf',
+            url: tabHref,
+            fromPage: Math.max(1, Number(fromPageInput.value) || 1)
+        });
     });
 
     // WebGPU requirement for the Natural voice — the navigator.gpu object
@@ -179,23 +195,29 @@ document.addEventListener('DOMContentLoaded', () => {
         progressBox.hidden = state.phase !== 'downloading';
         ttsNote.classList.remove('error');
 
+        const detail = state.detail ? ` — ${state.detail}` : '';
         switch (state.phase) {
+            case 'starting':
+                ttsNote.textContent = 'Preparing…';
+                stopBtn.disabled = false;
+                break;
             case 'downloading':
                 progressLabel.textContent =
                     `Downloading ${label} voice — ${state.pct}% of ${formatMB(state.total)}`;
                 progressFill.style.width = state.pct + '%';
-                ttsNote.innerHTML = 'Downloading once — cached for offline use after this.';
-                stopBtn.disabled = true;
+                ttsNote.textContent = 'Downloading once — cached for offline use after this.';
+                stopBtn.disabled = false;
                 break;
             case 'loading':
-                ttsNote.innerHTML = `Loading ${label} voice…`;
-                stopBtn.disabled = true;
+                ttsNote.textContent = `Loading ${label} voice${detail}…`;
+                stopBtn.disabled = false;
+                break;
+            case 'generating':
+                ttsNote.textContent = `Generating audio (${label})${detail}…`;
+                stopBtn.disabled = false;
                 break;
             case 'speaking':
-                ttsNote.innerHTML =
-                    `Speaking (${label})` +
-                    (state.chunks > 1 ? ` — part ${state.chunk} of ${state.chunks}` : '') +
-                    '…';
+                ttsNote.textContent = `Speaking (${label})${detail}…`;
                 stopBtn.disabled = false;
                 break;
             case 'error':

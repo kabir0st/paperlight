@@ -3,10 +3,8 @@
 // on WASM to be usable.
 
 import { ChatterboxModel, AutoProcessor } from '@huggingface/transformers';
-import { cachedArrayBuffer, decodeAudio } from './tts-common.js';
 
 const MODEL_ID = 'onnx-community/chatterbox-ONNX';
-const REFERENCE_SAMPLE_RATE = 24000; // from preprocessor_config.json
 
 export const CHATTERBOX_SAMPLE_RATE = 24000;
 
@@ -17,7 +15,10 @@ export class ChatterboxEngine {
         this.conditioning = conditioning;
     }
 
-    static async create({ progress_callback = null } = {}) {
+    // referenceAudio: Float32Array of the reference voice at 24 kHz, decoded
+    // by the offscreen document (workers have no AudioContext).
+    static async create({ referenceAudio, progress_callback = null } = {}) {
+        if (!referenceAudio) throw new Error('Missing reference voice audio.');
         if (!navigator.gpu || !(await navigator.gpu.requestAdapter())) {
             throw new Error(
                 'WebGPU is not available in this browser, and the Natural voice needs it. ' +
@@ -41,13 +42,9 @@ export class ChatterboxEngine {
             AutoProcessor.from_pretrained(MODEL_ID, { progress_callback })
         ]);
 
-        // Encode the default reference voice ONCE; every utterance then
-        // reuses the precomputed speaker conditioning tensors.
-        const referenceBuffer = await cachedArrayBuffer(
-            `https://huggingface.co/${MODEL_ID}/resolve/main/default_voice.wav`
-        );
-        const audio = await decodeAudio(referenceBuffer, REFERENCE_SAMPLE_RATE);
-        const { input_values } = await processor.feature_extractor(audio);
+        // Encode the reference voice ONCE; every utterance then reuses the
+        // precomputed speaker conditioning tensors.
+        const { input_values } = await processor.feature_extractor(referenceAudio);
         const conditioning = await model.encode_speech(input_values);
 
         return new ChatterboxEngine(model, processor, conditioning);

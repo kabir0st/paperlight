@@ -91,6 +91,13 @@
 
       <p class="tts-note" id="tts-note">Select text in a PDF, right-click → <strong>Read aloud</strong>. AI voices download once, then work offline.</p>
 
+      <div class="read-pdf" id="read-pdf-row" hidden>
+        <button class="btn primary" id="read-pdf-btn">Read this PDF</button>
+        <label class="from-page">from page
+          <input type="number" id="from-page" min="1" value="1" aria-label="Start page">
+        </label>
+      </div>
+
       <div class="tts-actions">
         <button class="btn primary" id="test-voice">Test voice</button>
         <button class="btn" id="stop-voice" disabled>Stop</button>

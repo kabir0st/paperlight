@@ -25,6 +25,7 @@
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
+    "pdfjs-dist": "^6.1.200",
     "phonemizer": "^1.2.1"
   }
 }

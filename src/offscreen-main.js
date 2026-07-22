@@ -1,113 +1,141 @@
-// Gentle Page PDF — offscreen document.
-// Hosts the local TTS engines (Kokoro / Chatterbox) and plays the audio.
-// The "robot" voice (chrome.tts) never reaches this document — the
-// service worker handles it directly.
+// Gentle Page PDF — offscreen document (coordinator).
+// Inference runs in a dedicated Web Worker (tts-worker.js) so this thread —
+// which is shared with the popup — stays responsive. This document only:
+//   - orchestrates the worker (one synthesize request in flight),
+//   - plays audio through the Web Audio API,
+//   - extracts PDF text with pdf.js for whole-document reading,
+//   - broadcasts status for the popup and the toolbar badge.
 
-import { env } from '@huggingface/transformers';
-import { KokoroEngine, KOKORO_SAMPLE_RATE } from './kokoro-engine.js';
-import { ChatterboxEngine, CHATTERBOX_SAMPLE_RATE } from './chatterbox-engine.js';
-import { splitSentences } from './tts-common.js';
+import * as pdfjs from 'pdfjs-dist';
+import {
+    cachedArrayBuffer,
+    decodeAudio,
+    splitSentences,
+    REFERENCE_VOICE_URL,
+    REFERENCE_SAMPLE_RATE
+} from './tts-common.js';
 
-// All runtime assets ship inside the extension — nothing executable is
-// fetched remotely (MV3 requirement). Model *weights* come from the HF Hub
-// and are cached by transformers.js in the Cache API ('transformers-cache').
-env.backends.onnx.wasm.wasmPaths = chrome.runtime.getURL('vendor/');
-env.useBrowserCache = true;
+pdfjs.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL('vendor/pdf.worker.min.mjs');
 
-const VOICES = {
-    fluent: {
-        sampleRate: KOKORO_SAMPLE_RATE,
-        create: (opts) => KokoroEngine.create(opts)
-    },
-    natural: {
-        sampleRate: CHATTERBOX_SAMPLE_RATE,
-        create: (opts) => ChatterboxEngine.create(opts)
-    }
-};
-
-const engines = {}; // voice -> Promise<engine>
-let session = null; // current playback session
+const MAX_BUFFERED_SECONDS = 30; // synth backpressure for long documents
 
 // ---------------------------------------------------------------- status
 
-let lastBroadcast = 0;
 function setStatus(state) {
-    const message = { type: 'tts-status', state: { ...state, at: Date.now() } };
-    // Throttle high-frequency download progress, always send phase changes.
-    const now = Date.now();
-    if (state.phase === 'downloading' && now - lastBroadcast < 250) return;
-    lastBroadcast = now;
-    chrome.runtime.sendMessage(message).catch(() => {});
+    chrome.runtime
+        .sendMessage({ type: 'tts-status', state: { ...state, at: Date.now() } })
+        .catch(() => {});
 }
 
-// Aggregate transformers.js per-file progress events into one percentage.
-function makeProgressTracker(voice) {
-    const files = new Map();
-    return (event) => {
-        if (!event.file) return;
-        if (event.status === 'progress' || event.status === 'initiate') {
-            files.set(event.file, {
-                loaded: event.loaded ?? 0,
-                total: event.total ?? 0
-            });
-        } else if (event.status === 'done') {
-            const entry = files.get(event.file);
-            if (entry) entry.loaded = entry.total;
-        }
-        let loaded = 0;
-        let total = 0;
-        for (const f of files.values()) {
-            loaded += f.loaded;
-            total += f.total;
-        }
-        if (total > 0) {
-            setStatus({
-                phase: 'downloading',
-                voice,
-                file: event.file,
-                loaded,
-                total,
-                pct: Math.min(100, Math.round((loaded / total) * 100))
-            });
-        }
-    };
-}
+// ---------------------------------------------------------------- worker
 
-// ---------------------------------------------------------------- engines
+let worker = null;
+let requestId = 0;
+const pending = new Map(); // id -> {resolve, reject}
+const readyVoices = new Set();
 
-function getEngine(voice) {
-    if (!VOICES[voice]) throw new Error(`Unknown voice: ${voice}`);
-    if (!engines[voice]) {
-        engines[voice] = VOICES[voice]
-            .create({ progress_callback: makeProgressTracker(voice) })
-            .then((engine) => {
-                // Offscreen documents can only use chrome.runtime — the
-                // service worker persists the ready flag for the popup.
-                chrome.runtime.sendMessage({ type: 'tts-ready', voice }).catch(() => {});
-                return engine;
-            })
-            .catch((error) => {
-                delete engines[voice]; // allow retry
-                throw error;
-            });
+function getWorker() {
+    if (!worker) {
+        worker = new Worker(chrome.runtime.getURL('tts-worker.js'), { type: 'module' });
+        worker.onmessage = ({ data }) => {
+            switch (data.type) {
+                case 'download':
+                    setStatus({
+                        phase: 'downloading',
+                        voice: data.voice,
+                        file: data.file,
+                        loaded: data.loaded,
+                        total: data.total,
+                        pct: data.pct
+                    });
+                    break;
+                case 'audio': {
+                    const p = pending.get(data.id);
+                    if (p) {
+                        pending.delete(data.id);
+                        p.resolve({
+                            samples: new Float32Array(data.samples),
+                            sampleRate: data.sampleRate
+                        });
+                    }
+                    break;
+                }
+                case 'synth-error': {
+                    const p = pending.get(data.id);
+                    if (p) {
+                        pending.delete(data.id);
+                        p.reject(new Error(data.error));
+                    }
+                    break;
+                }
+            }
+        };
+        worker.onerror = (event) => {
+            const error = new Error(event.message || 'TTS worker crashed');
+            for (const p of pending.values()) p.reject(error);
+            pending.clear();
+        };
     }
-    return engines[voice];
+    return worker;
+}
+
+async function ensureVoice(voice) {
+    if (readyVoices.has(voice)) return;
+    const w = getWorker();
+    let referenceAudio;
+    if (voice === 'natural') {
+        const buffer = await cachedArrayBuffer(REFERENCE_VOICE_URL);
+        referenceAudio = await decodeAudio(buffer, REFERENCE_SAMPLE_RATE);
+    }
+    await new Promise((resolve, reject) => {
+        const onMessage = ({ data }) => {
+            if (data.type === 'engine-ready' && data.voice === voice) {
+                w.removeEventListener('message', onMessage);
+                resolve();
+            } else if (data.type === 'engine-error' && data.voice === voice) {
+                w.removeEventListener('message', onMessage);
+                reject(new Error(data.error));
+            }
+        };
+        w.addEventListener('message', onMessage);
+        w.postMessage(
+            { cmd: 'ensure', voice, referenceAudio },
+            referenceAudio ? [referenceAudio.buffer] : []
+        );
+    });
+    readyVoices.add(voice);
+    chrome.runtime.sendMessage({ type: 'tts-ready', voice }).catch(() => {});
+}
+
+function synthesize(voice, text) {
+    return new Promise((resolve, reject) => {
+        const id = ++requestId;
+        pending.set(id, { resolve, reject });
+        getWorker().postMessage({ cmd: 'synthesize', id, voice, text });
+    });
 }
 
 // ---------------------------------------------------------------- playback
 
+let session = null;
+
 class PlaybackSession {
-    constructor(sampleRate) {
+    constructor() {
         this.aborted = false;
-        this.ctx = new AudioContext({ sampleRate });
+        this.ctx = null;
         this.tail = 0;
         this.sources = new Set();
+        this.started = false;
     }
 
-    play(waveform) {
+    play(samples, sampleRate) {
         if (this.aborted) return;
-        const buffer = this.ctx.createBuffer(1, waveform.length, this.ctx.sampleRate);
-        buffer.copyToChannel(waveform, 0);
+        if (!this.ctx) {
+            this.ctx = new AudioContext({ sampleRate });
+            this.tail = 0;
+        }
+        const buffer = this.ctx.createBuffer(1, samples.length, sampleRate);
+        buffer.copyToChannel(samples, 0);
         const source = this.ctx.createBufferSource();
         source.buffer = buffer;
         source.connect(this.ctx.destination);
@@ -116,10 +144,21 @@ class PlaybackSession {
         this.tail = startAt + buffer.duration;
         this.sources.add(source);
         source.onended = () => this.sources.delete(source);
+        this.started = true;
+    }
+
+    bufferedSeconds() {
+        return this.ctx ? Math.max(0, this.tail - this.ctx.currentTime) : 0;
+    }
+
+    async waitForRoom() {
+        while (!this.aborted && this.bufferedSeconds() > MAX_BUFFERED_SECONDS) {
+            await new Promise((r) => setTimeout(r, 500));
+        }
     }
 
     async waitUntilDone() {
-        while (!this.aborted && this.ctx.currentTime < this.tail) {
+        while (!this.aborted && this.ctx && this.ctx.currentTime < this.tail) {
             await new Promise((r) => setTimeout(r, 200));
         }
     }
@@ -127,50 +166,107 @@ class PlaybackSession {
     stop() {
         this.aborted = true;
         for (const source of this.sources) {
-            try {
-                source.stop();
-            } catch {}
+            try { source.stop(); } catch {}
         }
         this.sources.clear();
-        this.ctx.close().catch(() => {});
+        if (this.ctx) this.ctx.close().catch(() => {});
     }
 }
+
+// Synthesize a list of chunks into the session, with backpressure.
+// describe(i) renders the status detail for chunk i.
+async function speakChunks(mySession, voice, chunks, describe) {
+    for (let i = 0; i < chunks.length; i++) {
+        if (mySession.aborted) return;
+        setStatus({
+            phase: mySession.started ? 'speaking' : 'generating',
+            voice,
+            detail: describe(i)
+        });
+        await mySession.waitForRoom();
+        if (mySession.aborted) return;
+        const { samples, sampleRate } = await synthesize(voice, chunks[i]);
+        mySession.play(samples, sampleRate);
+        if (mySession.started) {
+            setStatus({ phase: 'speaking', voice, detail: describe(i) });
+        }
+    }
+}
+
+// ---------------------------------------------------------------- actions
 
 async function speak(text, voice) {
     stopPlayback();
-    const mySession = (session = new PlaybackSession(VOICES[voice].sampleRate));
+    const mySession = (session = new PlaybackSession());
     try {
         setStatus({ phase: 'loading', voice });
-        const engine = await getEngine(voice);
+        await ensureVoice(voice);
         const chunks = splitSentences(text);
-        for (let i = 0; i < chunks.length; i++) {
-            if (mySession.aborted) return;
-            setStatus({
-                phase: 'speaking',
-                voice,
-                chunk: i + 1,
-                chunks: chunks.length
-            });
-            const waveform = await engine.synthesize(chunks[i]);
-            mySession.play(waveform);
-        }
+        await speakChunks(mySession, voice, chunks, (i) =>
+            chunks.length > 1 ? `sentence ${i + 1} of ${chunks.length}` : ''
+        );
         await mySession.waitUntilDone();
         if (!mySession.aborted) setStatus({ phase: 'idle' });
     } catch (error) {
-        console.error('Gentle Page PDF TTS:', error);
-        setStatus({ phase: 'error', voice, error: String(error?.message || error) });
+        reportError(voice, error, mySession);
     }
 }
 
-async function preload(voice) {
-    try {
-        setStatus({ phase: 'loading', voice });
-        await getEngine(voice);
-        setStatus({ phase: 'ready', voice });
-    } catch (error) {
-        console.error('Gentle Page PDF TTS:', error);
-        setStatus({ phase: 'error', voice, error: String(error?.message || error) });
+async function extractPageText(pdf, pageNumber) {
+    const page = await pdf.getPage(pageNumber);
+    const content = await page.getTextContent();
+    let text = '';
+    for (const item of content.items) {
+        text += item.str + (item.hasEOL ? ' ' : ' ');
     }
+    return text.replace(/\s+/g, ' ').trim();
+}
+
+async function readPdf(url, fromPage, voice) {
+    stopPlayback();
+    const mySession = (session = new PlaybackSession());
+    try {
+        setStatus({ phase: 'loading', voice, detail: 'opening PDF' });
+        const robot = voice === 'robot';
+        if (!robot) await ensureVoice(voice);
+
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`Could not fetch the PDF (${response.status}).`);
+        const data = await response.arrayBuffer();
+        const pdf = await pdfjs.getDocument({ data, isEvalSupported: false }).promise;
+        const total = pdf.numPages;
+        const start = Math.min(Math.max(1, Number(fromPage) || 1), total);
+
+        for (let p = start; p <= total; p++) {
+            if (mySession.aborted) return;
+            const text = await extractPageText(pdf, p);
+            if (!text) continue;
+            if (robot) {
+                setStatus({ phase: 'speaking', voice, detail: `page ${p} of ${total}` });
+                chrome.runtime
+                    .sendMessage({ type: 'robot-say', text, page: p, pages: total })
+                    .catch(() => {});
+            } else {
+                const chunks = splitSentences(text);
+                await speakChunks(mySession, voice, chunks, (i) =>
+                    `page ${p} of ${total} · sentence ${i + 1}/${chunks.length}`
+                );
+            }
+        }
+        if (!robot) {
+            await mySession.waitUntilDone();
+            if (!mySession.aborted) setStatus({ phase: 'idle' });
+        }
+        // Robot mode: the service worker reports idle when chrome.tts drains.
+    } catch (error) {
+        reportError(voice, error, mySession);
+    }
+}
+
+function reportError(voice, error, mySession) {
+    if (mySession.aborted) return;
+    console.error('Gentle Page PDF TTS:', error);
+    setStatus({ phase: 'error', voice, error: String(error?.message || error) });
 }
 
 function stopPlayback() {
@@ -178,6 +274,9 @@ function stopPlayback() {
         session.stop();
         session = null;
     }
+    // Drop results of any in-flight synthesis.
+    for (const p of pending.values()) p.reject(new Error('cancelled'));
+    pending.clear();
 }
 
 // ---------------------------------------------------------------- messages
@@ -188,8 +287,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         case 'speak':
             speak(message.text, message.voice);
             break;
+        case 'read-pdf':
+            readPdf(message.url, message.fromPage, message.voice);
+            break;
         case 'preload':
-            preload(message.voice);
+            (async () => {
+                try {
+                    setStatus({ phase: 'loading', voice: message.voice });
+                    await ensureVoice(message.voice);
+                    setStatus({ phase: 'ready', voice: message.voice });
+                } catch (error) {
+                    setStatus({
+                        phase: 'error',
+                        voice: message.voice,
+                        error: String(error?.message || error)
+                    });
+                }
+            })();
             break;
         case 'stop':
             stopPlayback();

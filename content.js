@@ -149,10 +149,11 @@ if (isPdf()) {
         if (namespace === 'sync') refresh();
     });
 
-    // Lets the popup show whether the active tab is a PDF.
+    // Lets the popup show whether the active tab is a PDF, and gives it
+    // the document URL for whole-PDF reading (no "tabs" permission needed).
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (message && message.type === 'gentle-ping') {
-            sendResponse({ isPdf: true });
+            sendResponse({ isPdf: true, href: location.href });
         }
     });
 }

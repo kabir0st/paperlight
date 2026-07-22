@@ -1,0 +1,30 @@
+{
+  "name": "banana-gentle-pdf",
+  "version": "1.0.0",
+  "description": "A Chrome extension that makes PDFs comfortable to read. It applies gentle color filters to Chrome's built-in PDF viewer — softening the harsh white background into paper-like tones, or flipping the page into a proper dark mode — with an intensity slider to dial the effect in.",
+  "main": "background.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "node build.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kabir0st/Banana-Gentle-PDF.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/kabir0st/Banana-Gentle-PDF/issues"
+  },
+  "homepage": "https://github.com/kabir0st/Banana-Gentle-PDF#readme",
+  "private": "true",
+  "devDependencies": {
+    "esbuild": "^0.28.1"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
+    "phonemizer": "^1.2.1"
+  }
+}

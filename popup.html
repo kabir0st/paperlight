@@ -53,8 +53,52 @@
       </div>
     </section>
 
+    <section class="tts">
+      <fieldset class="voices">
+        <legend class="eyebrow">Read aloud</legend>
+        <div class="voice-list">
+          <label class="voice" data-voice="robot">
+            <input type="radio" name="voice" value="robot">
+            <span class="voice-body">
+              <span class="voice-name">Robot</span>
+              <span class="voice-meta">System voice · no download</span>
+            </span>
+            <span class="voice-state" data-state-for="robot">Built-in</span>
+          </label>
+          <label class="voice" data-voice="fluent">
+            <input type="radio" name="voice" value="fluent">
+            <span class="voice-body">
+              <span class="voice-name">Fluent</span>
+              <span class="voice-meta">Kokoro AI · ~90 MB download</span>
+            </span>
+            <span class="voice-state" data-state-for="fluent">~90 MB</span>
+          </label>
+          <label class="voice" data-voice="natural">
+            <input type="radio" name="voice" value="natural">
+            <span class="voice-body">
+              <span class="voice-name">Natural</span>
+              <span class="voice-meta">Chatterbox AI · ~1.4 GB · needs WebGPU</span>
+            </span>
+            <span class="voice-state" data-state-for="natural">~1.4 GB</span>
+          </label>
+        </div>
+      </fieldset>
+
+      <div class="tts-progress" id="tts-progress" hidden>
+        <div class="tts-progress-label" id="tts-progress-label"></div>
+        <div class="tts-progress-track"><div class="tts-progress-fill" id="tts-progress-fill"></div></div>
+      </div>
+
+      <p class="tts-note" id="tts-note">Select text in a PDF, right-click → <strong>Read aloud</strong>. AI voices download once, then work offline.</p>
+
+      <div class="tts-actions">
+        <button class="btn primary" id="test-voice">Test voice</button>
+        <button class="btn" id="stop-voice" disabled>Stop</button>
+      </div>
+    </section>
+
     <footer class="footer">
-      <span id="version">v2.0.0</span>
+      <span id="version">v2.1.0</span>
       <a href="https://kabir0st.info/" target="_blank" rel="noopener">by kabir0st</a>
     </footer>
 

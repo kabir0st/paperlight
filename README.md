@@ -40,20 +40,20 @@ Settings apply immediately and persist across sessions.
 
 ## How it works
 
-Chrome renders PDFs in an out-of-process plugin, which rules out most page-styling tricks (blend-mode overlays and SVG filter references can't reach the plugin's pixels). What does work — and what this extension does — is applying plain CSS `filter` functions directly to the PDF `<embed>` element:
+Chrome renders PDFs in an out-of-process viewer, which rules out most page-styling tricks: blend-mode overlays, `backdrop-filter`, and SVG filter references can't reach the viewer's pixels, and in current Chromium the viewer isn't even an element in the wrapper document (its `<body>` is empty), with content scripts blocked from the inner plugin frame. What does work — verified against the current out-of-process viewer — is applying plain CSS `filter` functions to the wrapper document's `<html>` element, inside which the viewer is composited:
 
-- The content script runs on every page but immediately exits unless the document is a PDF (`document.contentType === 'application/pdf'` or a PDF `<embed>` is present).
-- On PDF pages it sets `data-gentle-theme="paper|sepia|dark"` and a `--gentle-intensity` custom property on `<html>`.
-- `styles.css` contains only rules scoped to `html[data-gentle-theme]`, so no styling can ever leak onto regular websites.
-- Each theme is a combination of `sepia()`, `invert()`, `hue-rotate()`, `contrast()`, and `brightness()` filters, scaled by the intensity value via `calc()`.
+- The content script runs in every page and frame but immediately exits unless the document is a PDF (`document.contentType === 'application/pdf'` or a PDF `<embed>` is present).
+- On a PDF tab it filters the wrapper document's `<html>` element; for a PDF `<embed>` inside a normal web page it filters just that element, so the surrounding site is untouched.
+- Chromium doesn't reliably apply manifest-declared content CSS to PDF wrapper documents, so the script injects its own `<style>` node and mirrors the filter as an inline style.
+- Each theme is a combination of `sepia()`, `invert()`, `hue-rotate()`, `contrast()`, and `brightness()` filters, with the intensity value baked into the numbers.
+- Because styling is only ever injected on PDF documents, regular websites are never touched.
 
 ### Project structure
 
 ```
 Banana-Gentle-PDF/
 ├── manifest.json    # Manifest V3 definition
-├── content.js       # Detects PDFs, applies theme attribute + intensity
-├── styles.css       # The three theme filters (scoped to PDF pages only)
+├── content.js       # Detects PDFs, builds and injects the theme filters
 ├── popup.html       # Popup UI
 ├── popup.css        # Popup styling
 ├── popup.js         # Settings read/write, PDF status check
@@ -70,7 +70,7 @@ Banana-Gentle-PDF/
 
 ## Limitations
 
-- The filter applies to Chrome's whole PDF viewer, so the viewer toolbar is tinted along with the page.
+- Depending on the Chrome version, the viewer toolbar may be tinted along with the page (on current Chromium the toolbar stays native).
 - Images inside PDFs are filtered along with everything else. Dark mode uses `hue-rotate(180deg)` after inversion to keep image colors approximately correct, but photos will not look pixel-perfect.
 - Sites that embed their own JavaScript PDF viewers (e.g., PDF.js-based readers that draw to a `<canvas>`) are not Chrome's native viewer and are unaffected.
 - Works in Chrome and Chromium-based browsers with Manifest V3 (Chrome 88+).

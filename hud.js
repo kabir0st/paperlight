@@ -104,6 +104,24 @@ const CSS = `
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .detail:empty { display: none; }
+/* Live transcript of the sentence being spoken, three lines visible,
+   scrolled so the highlighted word stays in view. */
+.sentence {
+  margin-top: 8px; font-size: 12px; line-height: 1.5; color: #4a463c;
+  max-height: 54px; overflow: hidden; scroll-behavior: smooth;
+  overflow-wrap: break-word;
+}
+.sentence:empty { display: none; }
+.sentence .w { border-radius: 3px; padding: 0 1px; }
+.sentence .w.on { background: #2b2a26; color: #faf9f6; }
+/* Generation activity: the dot pulses while workers synthesize ahead. */
+.genline {
+  display: flex; align-items: center; gap: 6px;
+  margin-top: 7px; color: #75705f; font-size: 11px;
+}
+.genline[hidden] { display: none; }
+.gendot { width: 6px; height: 6px; border-radius: 50%; flex: none; background: #b3ad9e; }
+.gendot.live { background: #3e7b4f; animation: pulse 1.2s ease-in-out infinite; }
 .icon-btn {
   flex: none; width: 20px; height: 20px; padding: 0; margin-top: -2px;
   border: 0; border-radius: 5px; background: transparent; color: #75705f;
@@ -130,6 +148,10 @@ const CSS = `
 }
 .dark .panel { box-shadow: 0 10px 34px rgba(0, 0, 0, 0.6); }
 .dark .detail, .dark .icon-btn { color: #a09a8c; }
+.dark .sentence { color: #c9c4b8; }
+.dark .sentence .w.on { background: #e8e4dc; color: #232323; }
+.dark .genline { color: #a09a8c; }
+.dark .gendot { background: #575550; }
 .dark .icon-btn:hover { background: #33322e; color: #e8e4dc; }
 .dark .track { background: #3a3934; }
 .dark .fill { background: #e8e4dc; }
@@ -180,6 +202,8 @@ function build() {
           <button class="icon-btn open-settings" type="button" title="Settings" aria-label="Settings">⚙</button>
           <button class="icon-btn close-card" type="button" title="Hide" aria-label="Hide">✕</button>
         </div>
+        <div class="sentence"></div>
+        <div class="genline" hidden><span class="gendot"></span><span class="gentext"></span></div>
         <div class="track" hidden><div class="fill"></div></div>
         <div class="actions">
           <button class="btn toggle" type="button">Pause</button>
@@ -201,6 +225,10 @@ function build() {
         dot: wrap.querySelector('.dot'),
         phase: wrap.querySelector('.phase'),
         detail: wrap.querySelector('.detail'),
+        sentence: wrap.querySelector('.sentence'),
+        genline: wrap.querySelector('.genline'),
+        gendot: wrap.querySelector('.gendot'),
+        gentext: wrap.querySelector('.gentext'),
         track: wrap.querySelector('.track'),
         fill: wrap.querySelector('.fill'),
         actions: wrap.querySelector('.actions'),
@@ -342,6 +370,7 @@ function render(state) {
     currentState = state;
 
     if (!parts) {
+        clearReading();
         // Finished: acknowledge briefly instead of vanishing mid-sentence.
         if (wasShowing && state.phase === 'idle') {
             ui.phase.textContent = 'Finished reading';
@@ -368,8 +397,10 @@ function render(state) {
     ui.dot.classList.toggle('bad', !!parts.bad);
     ui.dot.classList.toggle('still', !!state.paused);
 
+    // The track is shared: download percentage before a reading, overall
+    // reading progress (driven by the reading ticks) during one.
     const downloading = parts.pct !== undefined;
-    ui.track.hidden = !downloading;
+    ui.track.hidden = !downloading && readingTick?.progress == null;
     if (downloading) ui.fill.style.width = parts.pct + '%';
 
     ui.actions.hidden = !!parts.bad;
@@ -384,8 +415,134 @@ function render(state) {
     }
 }
 
+// ---- live word highlight ---------------------------------------------
+// The offscreen document ticks twice a second with the chunk under the
+// play head and its timing; between ticks the highlight advances on a
+// local clock, so the marker moves word by word without a message per
+// word. Position within the chunk is estimated by character share of the
+// chunk's audio duration (the model reports no word timestamps), which is
+// accurate to about a word at normal speed.
+
+let readingTick = null; // latest tick, stamped with receivedAt
+let readingWords = []; // [{start, end, el}] spans of the current sentence
+let readingText = null;
+let readingRaf = 0;
+let readingWordIdx = -1;
+
+function clearReading() {
+    readingTick = null;
+    readingText = null;
+    readingWords = [];
+    readingWordIdx = -1;
+    if (readingRaf) {
+        cancelAnimationFrame(readingRaf);
+        readingRaf = 0;
+    }
+    if (!ui) return;
+    ui.sentence.textContent = '';
+    ui.genline.hidden = true;
+    if (currentState?.phase !== 'downloading') ui.track.hidden = true;
+}
+
+function buildSentence(text) {
+    ui.sentence.textContent = '';
+    readingWords = [];
+    readingWordIdx = -1;
+    const frag = document.createDocumentFragment();
+    const re = /\S+/g;
+    let last = 0;
+    let m;
+    while ((m = re.exec(text))) {
+        if (m.index > last) frag.append(text.slice(last, m.index));
+        const el = document.createElement('span');
+        el.className = 'w';
+        el.textContent = m[0];
+        frag.append(el);
+        readingWords.push({ start: m.index, end: m.index + m[0].length, el });
+        last = m.index + m[0].length;
+    }
+    if (last < text.length) frag.append(text.slice(last));
+    ui.sentence.append(frag);
+    ui.sentence.scrollTop = 0;
+}
+
+function setWord(idx) {
+    if (idx === readingWordIdx) return;
+    if (readingWordIdx >= 0) readingWords[readingWordIdx]?.el.classList.remove('on');
+    readingWordIdx = idx;
+    const word = idx >= 0 ? readingWords[idx] : null;
+    if (!word) return;
+    word.el.classList.add('on');
+    // Keep the active line inside the three-line window.
+    ui.sentence.scrollTop = Math.max(0, word.el.offsetTop - 18);
+}
+
+function stepReading() {
+    readingRaf = 0;
+    const tick = readingTick;
+    if (!tick || !tick.text || !readingWords.length) return;
+    let elapsed = tick.elapsedMs;
+    if (!tick.paused) elapsed += performance.now() - tick.receivedAt;
+    if (elapsed < 0) {
+        setWord(-1); // scheduled but not audible yet (buffer underrun gap)
+    } else {
+        const frac = tick.durationMs > 0 ? Math.min(elapsed / tick.durationMs, 0.999) : 0;
+        const pos = Math.floor(frac * tick.text.length);
+        let idx = readingWords.length - 1;
+        for (let i = 0; i < readingWords.length; i++) {
+            if (pos < readingWords[i].end) {
+                idx = i;
+                break;
+            }
+        }
+        setWord(idx);
+    }
+    if (!tick.paused) readingRaf = requestAnimationFrame(stepReading);
+}
+
+function renderReading(tick) {
+    if (!tick) {
+        clearReading();
+        return;
+    }
+    build();
+    readingTick = { ...tick, receivedAt: performance.now() };
+    if (cardDismissed || !cardWanted) return; // statuses own card visibility
+
+    const many = tick.workers > 1 ? ` ×${tick.workers}` : '';
+    let genText = '';
+    if (tick.generating) {
+        genText = tick.buffered > 0
+            ? `Generating ahead${many} · ${tick.buffered}s buffered`
+            : `Generating audio${many}…`;
+    } else if (tick.buffered > 0) {
+        genText = `${tick.buffered}s buffered`;
+    }
+    ui.gentext.textContent = genText;
+    ui.genline.hidden = !genText;
+    ui.gendot.classList.toggle('live', !!tick.generating);
+
+    if (tick.progress != null) {
+        ui.track.hidden = false;
+        ui.fill.style.width = Math.round(Math.min(1, Math.max(0, tick.progress)) * 100) + '%';
+    }
+
+    if (tick.text !== readingText) {
+        readingText = tick.text;
+        if (tick.text) buildSentence(tick.text);
+        else {
+            ui.sentence.textContent = '';
+            readingWords = [];
+            readingWordIdx = -1;
+        }
+    }
+    if (readingRaf) cancelAnimationFrame(readingRaf);
+    stepReading();
+}
+
 chrome.runtime.onMessage.addListener((message) => {
     if (message?.type === 'gentle-hud') render(message.state);
+    if (message?.type === 'gentle-reading') renderReading(message.reading);
 });
 
 // Keep the surfaces in step if the theme is changed while they are on screen.

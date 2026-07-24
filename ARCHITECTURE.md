@@ -89,6 +89,17 @@ which the viewer is composited.
   still grinding through a chunk nobody wants is terminated and respawned only
   if a new reading actually needs its slot (weights reload from cache in
   seconds).
+- **The activity card shows the words being spoken.** The offscreen document
+  keeps a schedule of what plays when, and ticks the HUD twice a second with
+  the sentence under the play head, its timing, background generation
+  activity (worker count, seconds buffered), and overall progress. The HUD
+  interpolates between ticks on its own clock and moves a word highlight by
+  character share of the chunk's duration — the model reports no word
+  timestamps, so the marker is an estimate, good to about a word. These ticks
+  bypass `setStatus` deliberately: at 2 Hz they would churn the badge and
+  session storage for something only the reading tab renders. Highlighting on
+  the PDF page itself is impossible: Chrome's viewer is an out-of-process
+  plugin with no DOM the extension can reach.
 - **Whole-PDF reading** fetches the PDF bytes and extracts text page by page
   with [pdf.js](https://mozilla.github.io/pdf.js/). For the Robot voice, pages
   stream back to the service worker as queued `chrome.tts` utterances.

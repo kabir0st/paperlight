@@ -327,6 +327,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         setStatus(message.state);
         return;
     }
+    // Word-level "now reading" ticks for the HUD. Deliberately not routed
+    // through setStatus: they arrive twice a second, and would churn the
+    // badge and session storage for something only the reading tab shows.
+    if (message?.type === 'tts-reading') {
+        restoreState().then(() => {
+            if (ttsTabId != null) {
+                chrome.tabs
+                    .sendMessage(ttsTabId, { type: 'gentle-reading', reading: message.reading })
+                    .catch(() => {});
+            }
+        });
+        return;
+    }
     if (message?.type === 'tts-ready') {
         chrome.storage.local.set({ [`ttsReady_${message.key || message.voice}`]: true }).catch(() => {});
         return;

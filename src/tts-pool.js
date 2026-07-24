@@ -314,6 +314,15 @@ export class WorkerPool {
         return seconds;
     }
 
+    // How many workers are synthesizing for the current reading right now.
+    busyWorkers(gen) {
+        let n = 0;
+        for (const w of this.workers) {
+            if (w.job && w.job.gen === gen) n += 1;
+        }
+        return n;
+    }
+
     observe(job, result) {
         if (!job.charLen || !result?.samples?.length || !result.sampleRate) return;
         const perChar = result.samples.length / result.sampleRate / job.charLen;

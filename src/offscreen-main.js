@@ -103,6 +103,7 @@ class PlaybackSession {
         this.tail = 0;
         this.sources = new Set();
         this.started = false;
+        this.schedule = []; // {text, meta, startAt, endAt} per committed chunk
     }
 
     play(samples, sampleRate) {
@@ -130,6 +131,7 @@ class PlaybackSession {
         this.sources.add(source);
         source.onended = () => this.sources.delete(source);
         this.started = true;
+        return { startAt, duration: buffer.duration };
     }
 
     setVolume(volume) {
@@ -223,12 +225,67 @@ class Committer {
             this.readyAudioSeconds -= r.samples.length / r.sampleRate;
             this.nextSeq += 1;
             if (this.session.aborted) continue;
-            this.session.play(r.samples, r.sampleRate);
+            const slot = this.session.play(r.samples, r.sampleRate);
+            if (slot) {
+                // The reading ticker walks this to tell the HUD which words
+                // are under the play head.
+                this.session.schedule.push({
+                    text: next.text,
+                    meta: next.meta,
+                    startAt: slot.startAt,
+                    endAt: slot.startAt + slot.duration
+                });
+            }
             if (this.session.started) {
                 setStatus({ phase: 'speaking', voice: this.voice, detail: this.describe(next) });
             }
         }
     }
+}
+
+const READING_TICK_MS = 500;
+
+// Live "now reading" feed for the in-page HUD: the chunk under the play
+// head with its timing, whether generation is running ahead (and on how
+// many workers), how much audio is buffered, and overall progress. Status
+// messages only change per chunk; this ticks steadily so the HUD can
+// animate word-by-word, interpolating between ticks on its own clock.
+// tickMeta(meta) contributes the flow-specific fields (page/pct/progress).
+// Returns a stop function; the final tick is null so the HUD clears.
+function startReadingTicker(mySession, tickMeta) {
+    const gen = pool.gen;
+    const send = (reading) =>
+        chrome.runtime.sendMessage({ type: 'tts-reading', reading }).catch(() => {});
+    let stopped = false;
+    const timer = setInterval(() => {
+        if (mySession.aborted) {
+            stop();
+            return;
+        }
+        const now = mySession.ctx ? mySession.ctx.currentTime : 0;
+        const schedule = mySession.schedule;
+        while (schedule.length && schedule[0].endAt <= now) schedule.shift();
+        const cur = schedule[0] ?? null;
+        const busy = pool.busyWorkers(gen);
+        send({
+            text: cur ? cur.text : null,
+            // Negative while the chunk is scheduled but not yet audible.
+            elapsedMs: cur ? Math.round((now - cur.startAt) * 1000) : 0,
+            durationMs: cur ? Math.round((cur.endAt - cur.startAt) * 1000) : 0,
+            paused: mySession.paused,
+            buffered: Math.round(mySession.bufferedSeconds()),
+            generating: busy > 0,
+            workers: busy,
+            ...tickMeta(cur ? cur.meta : null)
+        });
+    }, READING_TICK_MS);
+    function stop() {
+        if (stopped) return;
+        stopped = true;
+        clearInterval(timer);
+        send(null);
+    }
+    return stop;
 }
 
 // Pull chunks from `source`, keep the pool busy while the buffer target has
@@ -341,6 +398,7 @@ async function speakStream(mySession, voice, source, describe) {
 async function speak(text, voice) {
     stopPlayback();
     const mySession = (session = new PlaybackSession(settings.volume / 100));
+    let stopTicker = null;
     try {
         setStatus({ phase: 'loading', voice });
         await pool.ensureVoice(voice, engineOptions(voice));
@@ -361,6 +419,10 @@ async function speak(text, voice) {
             },
             remainingHint: () => feed.buffered()
         };
+        stopTicker = startReadingTicker(mySession, (meta) => ({
+            pct: meta ? meta.pct : null,
+            progress: meta ? meta.pct / 100 : null
+        }));
         await speakStream(mySession, voice, source, (job) =>
             job.meta.pct > 0 ? `${job.meta.pct}% read` : ''
         );
@@ -368,6 +430,8 @@ async function speak(text, voice) {
         if (!mySession.aborted) setStatus({ phase: 'idle' });
     } catch (error) {
         reportError(voice, error, mySession);
+    } finally {
+        stopTicker?.();
     }
 }
 
@@ -471,6 +535,7 @@ async function locateText(pageText, total, selection, mySession, voice) {
 async function readPdf(url, { fromPage, fromText } = {}, voice) {
     stopPlayback();
     const mySession = (session = new PlaybackSession(settings.volume / 100));
+    let stopTicker = null;
     try {
         setStatus({ phase: 'loading', voice, detail: 'opening PDF' });
         const robot = voice === 'robot';
@@ -563,6 +628,11 @@ async function readPdf(url, { fromPage, fromText } = {}, voice) {
                 // "plenty" until the last one is in the buffer.
                 remainingHint: () => (nextPage <= total ? Infinity : feed.buffered())
             };
+            stopTicker = startReadingTicker(mySession, (meta) => ({
+                page: meta ? meta.page : null,
+                pages: total,
+                progress: meta ? (meta.page - 1) / Math.max(1, total) : null
+            }));
             await speakStream(mySession, voice, source, (job) =>
                 `page ${job.meta?.page ?? start} of ${total}`
             );
@@ -583,6 +653,8 @@ async function readPdf(url, { fromPage, fromText } = {}, voice) {
         // Robot mode: the service worker reports idle when chrome.tts drains.
     } catch (error) {
         reportError(voice, error, mySession);
+    } finally {
+        stopTicker?.();
     }
 }
 

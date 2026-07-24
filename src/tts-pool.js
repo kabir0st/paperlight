@@ -17,7 +17,7 @@ const DEBUG = false;
 // this coordinator with pdf.js, and the rest of the browser.
 export const POOL_CAP = Math.max(1, Math.min(3, (navigator.hardwareConcurrency ?? 4) - 2));
 
-const SCALE_UP_COOLDOWN_MS = 5000; // observe each spawn's effect before the next
+const SCALE_UP_COOLDOWN_MS = 3000; // escalate quickly on slow machines; extras idle out anyway
 const SCALE_UP_MIN_REMAINING_CHARS = 800; // ~60s of audio; less never repays warm-up
 const WORKER_IDLE_TERMINATE_MS = 45000; // extras cost real RAM; survive short pauses
 const IDLE_SWEEP_MS = 5000;
@@ -254,19 +254,22 @@ export class WorkerPool {
     // -------------------------------------------------------------- scaling
 
     // All conditions must hold: growth is the exception, not the rule. The
-    // buffer level doubles as the realtime-factor measurement - a worker
-    // that keeps up makes the buffer climb, and this never fires.
-    maybeScaleUp({ voice, options, effective, lowWater, remainingChars }) {
+    // gate is the AUDIBLE runway - what is actually scheduled ahead of the
+    // play head - not the estimate that counts in-flight synthesis: on a
+    // slow machine the in-flight chunk is precisely what is not arriving in
+    // time, and counting it would mask the underrun. A worker that keeps up
+    // makes the real buffer climb, and this never fires.
+    maybeScaleUp({ voice, options, buffered, lowWater, remainingChars }) {
         if (this.noMoreSpawns) return;
         if (this.workers.length >= POOL_CAP) return;
         if (!this.workers.every((w) => w.job || w.warming)) return;
         if (!this.readyEngines.has(voice)) return; // never race the first download
-        if (effective >= lowWater) return;
+        if (buffered >= lowWater) return;
         if (remainingChars <= SCALE_UP_MIN_REMAINING_CHARS) return;
         if (Date.now() - this.lastSpawnAt < SCALE_UP_COOLDOWN_MS) return;
         const entry = this.spawn();
         entry.warming = true;
-        this.debug(`scaling up: worker ${entry.id} warming (effective ${effective.toFixed(1)}s)`);
+        this.debug(`scaling up: worker ${entry.id} warming (buffered ${buffered.toFixed(1)}s)`);
         this.ensureOn(entry, voice, options).catch(() => {
             // A spare that cannot init would just fail again; stop trying
             // for the rest of this session and carry on with what works.

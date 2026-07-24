@@ -16,6 +16,16 @@ import { KokoroEngine, KOKORO_SAMPLE_RATE } from './kokoro-engine.js';
 env.backends.onnx.wasm.wasmPaths = new URL('vendor/', self.location.href).href;
 env.useBrowserCache = true;
 
+// transformers.js warns that Kokoro's model type is missing from its
+// MODEL_TYPE_MAPPING and falls back to the single-file path, which is
+// exactly right for this model. The warning lands on the extension's
+// Errors page and reads like a fault, so drop that one message only.
+const nativeWarn = console.warn.bind(console);
+console.warn = (...args) => {
+    if (typeof args[0] === 'string' && args[0].includes('MODEL_TYPE_MAPPING')) return;
+    nativeWarn(...args);
+};
+
 const SAMPLE_RATES = { fluent: KOKORO_SAMPLE_RATE };
 const engines = {}; // voice -> Promise<engine>
 

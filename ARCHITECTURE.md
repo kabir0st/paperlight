@@ -68,14 +68,16 @@ which the viewer is composited.
   [transformers.js](https://github.com/huggingface/transformers.js) (ONNX
   Runtime WASM), streamed into the Web Audio API.
 - **Chunks are cut incrementally and sized by buffer health.** The first chunk
-  of a session is ~70 characters so the first audio arrives as fast as the
-  model can produce anything; the target ramps up to 350 characters (the best
-  prosody, comfortably under the model's 509-phoneme ceiling) once about 15
-  seconds of audio is buffered ahead. Cuts prefer sentence ends, then clause
-  commas, then word boundaries. Chunks span PDF page boundaries, so a sentence
-  broken across pages reads as one. About 30 seconds of audio stays scheduled
-  ahead as backpressure, with the audio still being synthesized counted
-  against that target.
+  of a session targets ~70 characters so the first audio arrives as fast as
+  the model can produce anything; the target ramps up to 350 characters (the
+  best prosody, comfortably under the model's 509-phoneme ceiling) once about
+  15 seconds of audio is buffered ahead. A chunk is never less than one full
+  sentence — the cut runs past its target to the next sentence end rather
+  than halting mid-thought, falling back to clause commas and word boundaries
+  only for sentences too long to speak at all. Chunks span PDF page
+  boundaries, so a sentence broken across pages reads as one. About 30
+  seconds of audio stays scheduled ahead as backpressure, with the audio
+  still being synthesized counted against that target.
 - **The worker pool scales with demand, not with the machine.** One worker is
   always kept warm. Extras (up to 3, and never more than
   `hardwareConcurrency - 2` — each WASM worker is single-threaded, one core
@@ -112,8 +114,11 @@ which the viewer is composited.
   NFKD-decomposed, lowercased, reduced to letters and digits, with an index
   map back to the original text. Progressively shorter prefixes are tried, and
   a word-aligned hit is preferred so a short selection like "The" does not land
-  inside "theory". Text repeated verbatim across pages resolves to the first
-  copy, which is as far as a bare selection string can go.
+  inside "theory", and a match whose first character carries the selection's
+  exact case outranks one that only matches folded — selecting the paragraph
+  opener "Recurrent" must not resolve to a mid-sentence "recurrent" on an
+  earlier page. Text repeated with identical case across pages still resolves
+  to the first copy, which is as far as a bare selection string can go.
 - Model weights download from the Hugging Face Hub on first use and are stored
   in the browser's Cache API. Nothing is re-downloaded afterwards, and no text
   or audio ever leaves your machine. Kokoro's speakers are separate 0.5 MB style

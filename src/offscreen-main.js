@@ -22,8 +22,10 @@ pdfjs.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL('vendor/pdf.worker.m
 const HIGH_WATER_SECONDS = 30;
 const LOW_WATER_SECONDS = 10;
 
-// The very first chunk of a session is cut this small so the first audio
-// arrives as fast as the model can produce anything at all.
+// The first chunk of a session targets this so the opening audio arrives
+// fast. Chunks are never less than one full sentence, so this effectively
+// means "just the first sentence, even a short one" rather than packing
+// several like a full-size chunk would.
 const FIRST_CHUNK_CHARS = 70;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -346,7 +348,7 @@ async function speakStream(mySession, voice, source, describe) {
             pool.maybeScaleUp({
                 voice,
                 options: engineOptions(voice),
-                effective,
+                buffered: mySession.bufferedSeconds(),
                 lowWater: LOW_WATER_SECONDS,
                 remainingChars: source.remainingHint()
             });
@@ -485,10 +487,17 @@ function fold(text) {
 // characters that came from non-adjacent source indices had something
 // dropped between them - a word boundary. Preferring those keeps a short
 // selection like "The" from landing inside "theory".
-function findFolded(hay, map, needle, atWordStart) {
+//
+// caseChar, when set, additionally requires the match's first character to
+// carry the selection's exact case in the original text. Folding lowercases
+// everything, so a selection like "Recurrent" (a paragraph opener) would
+// otherwise resolve to a mid-sentence "recurrent" on an earlier page.
+function findFolded(hay, map, needle, atWordStart, ori, caseChar) {
     let at = hay.indexOf(needle);
     while (at >= 0) {
-        if (!atWordStart || at === 0 || map[at] - map[at - 1] > 1) return at;
+        if (!atWordStart || at === 0 || map[at] - map[at - 1] > 1) {
+            if (caseChar == null || ori[map[at]] === caseChar) return at;
+        }
         at = hay.indexOf(needle, at + 1);
     }
     return -1;
@@ -507,23 +516,37 @@ async function locateText(pageText, total, selection, mySession, voice) {
         .filter((n) => n <= target.length && n >= Math.min(target.length, 12))
         .sort((a, b) => b - a);
 
-    const folded = new Map(); // page -> {folded, map}, built at most once
+    // A case-exact first character outranks everything but match length: it
+    // is the only signal that separates a selected paragraph opener from
+    // the same word mid-sentence on an earlier page. Skipped when the first
+    // character has no case to preserve.
+    const firstChar = selection.trim()[0];
+    const caseMatters =
+        firstChar && firstChar.toLowerCase() !== firstChar.toUpperCase();
+    const casePasses = caseMatters ? [firstChar, null] : [null];
+
+    const folded = new Map(); // page -> {ori, folded, map}, built at most once
     for (const length of lengths) {
         const needle = target.slice(0, length);
-        for (const atWordStart of [true, false]) {
-            for (let p = 1; p <= total; p++) {
-                if (mySession.aborted) return null;
-                if (!folded.has(p)) {
-                    setStatus({
-                        phase: 'loading',
-                        voice,
-                        detail: `finding your place · page ${p} of ${total}`
-                    });
-                    folded.set(p, fold(await pageText(p)));
+        for (const caseChar of casePasses) {
+            for (const atWordStart of [true, false]) {
+                for (let p = 1; p <= total; p++) {
+                    if (mySession.aborted) return null;
+                    if (!folded.has(p)) {
+                        setStatus({
+                            phase: 'loading',
+                            voice,
+                            detail: `finding your place · page ${p} of ${total}`
+                        });
+                        const text = await pageText(p);
+                        folded.set(p, { ori: text, ...fold(text) });
+                    }
+                    const page = folded.get(p);
+                    const at = findFolded(
+                        page.folded, page.map, needle, atWordStart, page.ori, caseChar
+                    );
+                    if (at >= 0) return { page: p, offset: page.map[at] };
                 }
-                const page = folded.get(p);
-                const at = findFolded(page.folded, page.map, needle, atWordStart);
-                if (at >= 0) return { page: p, offset: page.map[at] };
             }
         }
     }

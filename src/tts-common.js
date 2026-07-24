@@ -79,11 +79,18 @@ export class ChunkFeed {
         return { text, meta };
     }
 
-    // Prefer a sentence end, then a clause comma past the midpoint, then a
-    // word boundary; a hard cut only for pathological unbroken runs. The
-    // same fallback ladder the fixed splitter used.
+    // Last sentence end within the target; failing that, run PAST the
+    // target to the next sentence end. A chunk is never less than one full
+    // sentence - cutting mid-sentence makes the voice halt mid-thought
+    // every time the buffer runs low, which reads as stuttering. Only a
+    // sentence too long to speak at all (over the hard max) falls back to
+    // the clause-comma / word-boundary / hard-cut ladder.
     cutPoint(limit) {
         for (let i = limit; i >= 1; i--) {
+            if (this.buf[i] === ' ' && SENTENCE_END.test(this.buf[i - 1])) return i;
+        }
+        const max = Math.min(CHUNK_HARD_MAX, this.buf.length - 1);
+        for (let i = limit + 1; i <= max; i++) {
             if (this.buf[i] === ' ' && SENTENCE_END.test(this.buf[i - 1])) return i;
         }
         const comma = this.buf.lastIndexOf(',', limit - 1);

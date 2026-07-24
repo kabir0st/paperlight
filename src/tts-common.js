@@ -15,34 +15,81 @@ export async function cachedArrayBuffer(url) {
     return response.arrayBuffer();
 }
 
-// Split text into speakable chunks: sentences, merged up to maxLen chars,
-// with a hard split for pathological run-on sentences.
-export function splitSentences(text, maxLen = 350) {
-    const sentences = text
-        .replace(/\s+/g, ' ')
-        .trim()
-        .split(/(?<=[.!?…;:])\s+/);
+// The longest chunk ever cut. 350 chars stays comfortably under the model's
+// 509-phoneme ceiling (the tokenizer truncates past it), and is the size the
+// fixed splitter always used.
+export const CHUNK_HARD_MAX = 350;
 
-    const chunks = [];
-    let current = '';
-    for (let sentence of sentences) {
-        while (sentence.length > maxLen) {
-            const cut =
-                sentence.lastIndexOf(',', maxLen) > maxLen / 2
-                    ? sentence.lastIndexOf(',', maxLen) + 1
-                    : sentence.lastIndexOf(' ', maxLen);
-            const head = sentence.slice(0, cut > 0 ? cut : maxLen).trim();
-            if (head) chunks.push(current ? `${current} ${head}` : head);
-            current = '';
-            sentence = sentence.slice(cut > 0 ? cut : maxLen).trim();
-        }
-        if ((current + ' ' + sentence).trim().length > maxLen) {
-            if (current) chunks.push(current);
-            current = sentence;
-        } else {
-            current = (current + ' ' + sentence).trim();
-        }
+const SENTENCE_END = /[.!?…;:]/;
+
+// Incremental chunk cutter. Text is appended as it becomes available (PDF
+// pages, a selection) and cut into speakable chunks on demand, each sized by
+// the caller: small chunks while the listener is waiting on the first audio,
+// long ones once playback is buffered ahead. Each append can carry a meta
+// value (a page number); a cut reports the meta of the range its first
+// character came from.
+export class ChunkFeed {
+    constructor() {
+        this.buf = '';
+        this.metas = []; // {start, end, meta} ranges over buf
+        this.ended = false;
+        this.totalChars = 0;
+        this.consumedChars = 0;
     }
-    if (current) chunks.push(current);
-    return chunks.filter(Boolean);
+
+    append(text, meta = null) {
+        const normalized = String(text ?? '').replace(/\s+/g, ' ').trim();
+        if (!normalized) return;
+        const start = this.buf ? this.buf.length + 1 : 0;
+        this.buf = this.buf ? `${this.buf} ${normalized}` : normalized;
+        this.metas.push({ start, end: start + normalized.length, meta });
+        this.totalChars += normalized.length + (start > 0 ? 1 : 0);
+    }
+
+    end() {
+        this.ended = true;
+    }
+
+    buffered() {
+        return this.buf.length;
+    }
+
+    // Returns {text, meta} or null. Null means "append more text first" until
+    // end() is called; after that it means the feed is drained. While more
+    // text may still arrive, nothing shorter than CHUNK_HARD_MAX is cut, so a
+    // page boundary never produces a runt chunk mid-sentence.
+    next(targetLen) {
+        if (!this.buf) return null;
+        if (!this.ended && this.buf.length < CHUNK_HARD_MAX) return null;
+        const limit = Math.max(1, Math.min(targetLen, CHUNK_HARD_MAX, this.buf.length));
+        const cut = this.buf.length <= limit ? this.buf.length : this.cutPoint(limit);
+        const meta = this.metas.length ? this.metas[0].meta : null;
+        const text = this.buf.slice(0, cut).trim();
+        // Consume the cut plus the space that follows it.
+        let shift = cut;
+        while (this.buf[shift] === ' ') shift += 1;
+        this.buf = this.buf.slice(shift);
+        this.consumedChars += shift;
+        const metas = [];
+        for (const m of this.metas) {
+            if (m.end - shift <= 0) continue;
+            metas.push({ start: Math.max(0, m.start - shift), end: m.end - shift, meta: m.meta });
+        }
+        this.metas = metas;
+        return { text, meta };
+    }
+
+    // Prefer a sentence end, then a clause comma past the midpoint, then a
+    // word boundary; a hard cut only for pathological unbroken runs. The
+    // same fallback ladder the fixed splitter used.
+    cutPoint(limit) {
+        for (let i = limit; i >= 1; i--) {
+            if (this.buf[i] === ' ' && SENTENCE_END.test(this.buf[i - 1])) return i;
+        }
+        const comma = this.buf.lastIndexOf(',', limit - 1);
+        if (comma > limit / 2) return comma + 1;
+        const space = this.buf.lastIndexOf(' ', limit);
+        if (space > 0) return space;
+        return limit;
+    }
 }

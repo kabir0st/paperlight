@@ -61,14 +61,34 @@ which the viewer is composited.
 
 - The **Robot** voice uses `chrome.tts` (your operating system's speech engine)
   straight from the service worker.
-- The **Fluent** voice runs in an offscreen document that spawns a dedicated Web
-  Worker for inference. Extension pages share one renderer thread, so running
-  models on it would freeze the popup; the worker keeps everything responsive.
-  Text is split into sentences, synthesized chunk by chunk by
+- The **Fluent** voice runs in an offscreen document that spawns a small pool
+  of Web Workers for inference. Extension pages share one renderer thread, so
+  running models on it would freeze the popup; the workers keep everything
+  responsive. Synthesis is
   [transformers.js](https://github.com/huggingface/transformers.js) (ONNX
-  Runtime WASM), and streamed into the Web Audio API. Sentence *n+1* is
-  generated while sentence *n* plays, with about 30 seconds of audio buffered
-  ahead as backpressure for long documents.
+  Runtime WASM), streamed into the Web Audio API.
+- **Chunks are cut incrementally and sized by buffer health.** The first chunk
+  of a session is ~70 characters so the first audio arrives as fast as the
+  model can produce anything; the target ramps up to 350 characters (the best
+  prosody, comfortably under the model's 509-phoneme ceiling) once about 15
+  seconds of audio is buffered ahead. Cuts prefer sentence ends, then clause
+  commas, then word boundaries. Chunks span PDF page boundaries, so a sentence
+  broken across pages reads as one. About 30 seconds of audio stays scheduled
+  ahead as backpressure, with the audio still being synthesized counted
+  against that target.
+- **The worker pool scales with demand, not with the machine.** One worker is
+  always kept warm. Extras (up to 3, and never more than
+  `hardwareConcurrency - 2` — each WASM worker is single-threaded, one core
+  apiece) are spawned only while the buffer is under ~10 seconds, enough text
+  remains to repay the warm-up, and the weights are already cached. Idle
+  extras are terminated after 45 seconds, since each holds its own ~200 MB
+  copy of the model. Results can finish out of order; a committer schedules
+  them into the audio timeline strictly in sequence.
+- **Stopping cannot abort inference** — ONNX Runtime has no cancel — so stop
+  bumps a generation counter and drops stale results when they land. A worker
+  still grinding through a chunk nobody wants is terminated and respawned only
+  if a new reading actually needs its slot (weights reload from cache in
+  seconds).
 - **Whole-PDF reading** fetches the PDF bytes and extracts text page by page
   with [pdf.js](https://mozilla.github.io/pdf.js/). For the Robot voice, pages
   stream back to the service worker as queued `chrome.tts` utterances.
@@ -90,9 +110,9 @@ which the viewer is composited.
   reload. Only the q8 export is ever loaded (`model_quantized.onnx`), so there
   is exactly one set of weights to download and track.
 - **Pause** suspends the offscreen `AudioContext`. That freezes the scheduled
-  playback tail and the backpressure loops with it, so synthesis stops too
-  rather than racing ahead while you are paused. The Robot voice uses
-  `chrome.tts.pause()`.
+  playback tail (and with it the buffer arithmetic), and the dispatch loop
+  checks the paused flag directly, so synthesis stops too rather than racing
+  ahead while you are paused. The Robot voice uses `chrome.tts.pause()`.
 
 ## In-page controls
 
@@ -126,11 +146,14 @@ paperlight/
 ├── offscreen.js     # BUILT coordinator bundle (pdf.js, playback, worker mgmt)
 ├── tts-worker.js    # BUILT inference worker bundle (transformers.js + engines)
 ├── src/             # Sources for the built bundles
-│   ├── offscreen-main.js    # Playback queue, pdf.js extraction, statuses
+│   ├── offscreen-main.js    # Dispatch loop, in-order commit, playback,
+│   │                        # pdf.js extraction, statuses
+│   ├── tts-pool.js          # Worker pool: demand-driven scaling, retries,
+│   │                        # generation tokens for cancellation
 │   ├── tts-worker.js        # Inference worker: model download + synthesis
 │   ├── kokoro-engine.js     # "Fluent" voice (Kokoro-82M)
 │   ├── kokoro-voices.js     # Speaker list, shared by the engine and popup
-│   ├── tts-common.js        # Asset caching + sentence splitting
+│   ├── tts-common.js        # Asset caching + incremental chunk cutter
 │   └── vendor/phonemize.js  # Vendored from kokoro-js (Apache-2.0)
 ├── vendor/          # ONNX Runtime WASM + pdf.js worker (copied by build.mjs)
 ├── build.mjs        # esbuild bundling script (npm run build)

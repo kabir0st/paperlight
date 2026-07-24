@@ -14,6 +14,7 @@ const DEFAULTS = {
 };
 
 const MENU_ID = 'gentle-read-aloud';
+const MENU_FROM_ID = 'gentle-read-from-here';
 const MENU_PDF_ID = 'gentle-read-pdf';
 const TEST_SENTENCE =
     'This is your Paperlight reading voice. Select text in a PDF, ' +
@@ -74,6 +75,14 @@ chrome.runtime.onInstalled.addListener((details) => {
             title: 'Read aloud',
             contexts: ['selection']
         });
+        // Deliberately not restricted to *.pdf URLs: plenty of PDFs are served
+        // from extensionless paths (arxiv.org/pdf/1706.03762), and the
+        // offscreen document reports a clear message if the page is not one.
+        chrome.contextMenus.create({
+            id: MENU_FROM_ID,
+            title: 'Start from here',
+            contexts: ['selection']
+        });
         chrome.contextMenus.create({
             id: MENU_PDF_ID,
             title: 'Read this PDF aloud',
@@ -90,8 +99,10 @@ chrome.runtime.onInstalled.addListener((details) => {
 chrome.contextMenus.onClicked.addListener((info, tab) => {
     if (info.menuItemId === MENU_ID && info.selectionText) {
         speak(info.selectionText, tab?.id);
+    } else if (info.menuItemId === MENU_FROM_ID && info.selectionText && info.pageUrl) {
+        readPdf(info.pageUrl, { fromText: info.selectionText }, tab?.id);
     } else if (info.menuItemId === MENU_PDF_ID && info.pageUrl) {
-        readPdf(info.pageUrl, 1, tab?.id);
+        readPdf(info.pageUrl, {}, tab?.id);
     }
 });
 
@@ -149,10 +160,11 @@ async function speak(text, tabId) {
     }
 }
 
-// Whole-document reading. Text extraction always happens in the offscreen
+// Whole-document reading, from a page or from a selection ("Start from
+// here") through to the end. Text extraction always happens in the offscreen
 // document (pdf.js); for the robot voice it streams pages back here and
 // chrome.tts queues them.
-async function readPdf(url, fromPage, tabId) {
+async function readPdf(url, { fromPage = 1, fromText = '' } = {}, tabId) {
     const settings = await voiceSettings();
     const { voice, volume } = settings;
     robotVolume = volume / 100;
@@ -161,7 +173,15 @@ async function readPdf(url, fromPage, tabId) {
     setStatus({ phase: 'starting', voice }, { paused: false });
     await ensureOffscreen();
     chrome.runtime
-        .sendMessage({ target: 'tts-offscreen', cmd: 'read-pdf', url, fromPage, voice, settings })
+        .sendMessage({
+            target: 'tts-offscreen',
+            cmd: 'read-pdf',
+            url,
+            fromPage,
+            fromText,
+            voice,
+            settings
+        })
         .catch(() => {});
 }
 
@@ -337,7 +357,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             if (message.text) speak(message.text, message.tabId);
             break;
         case 'read-pdf':
-            if (message.url) readPdf(message.url, message.fromPage || 1, message.tabId);
+            if (message.url) {
+                readPdf(
+                    message.url,
+                    { fromPage: message.fromPage || 1, fromText: message.fromText },
+                    message.tabId
+                );
+            }
             break;
         case 'pause':
             setPaused(true);

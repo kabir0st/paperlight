@@ -26,7 +26,7 @@ on **Allow access to file URLs**.
 |---|---|
 | `storage` | Remember your theme, intensity, and voice |
 | Host access (`<all_urls>`) | PDFs live at unpredictable URLs, so the detector has to be allowed to load anywhere. It exits immediately on anything that is not a PDF |
-| `contextMenus` | The right-click **Read aloud** item |
+| `contextMenus` | The right-click **Read aloud** and **Start from here** items |
 | `tts` | The Robot voice |
 | `offscreen` | A hidden page that runs the Fluent voice and plays audio |
 
@@ -72,6 +72,17 @@ which the viewer is composited.
 - **Whole-PDF reading** fetches the PDF bytes and extracts text page by page
   with [pdf.js](https://mozilla.github.io/pdf.js/). For the Robot voice, pages
   stream back to the service worker as queued `chrome.tts` utterances.
+- **Start from here** reads from a selection to the end of the document.
+  Chromium hands a context-menu selection over as bare text — no page number,
+  no offsets, truncated at about a kilobyte — so the offscreen document has to
+  search the extracted text for it. The two sides do not agree character for
+  character (the viewer's copy resolves ligatures, joins hyphenated line
+  breaks, and spaces things differently), so matching runs on a folded form:
+  NFKD-decomposed, lowercased, reduced to letters and digits, with an index
+  map back to the original text. Progressively shorter prefixes are tried, and
+  a word-aligned hit is preferred so a short selection like "The" does not land
+  inside "theory". Text repeated verbatim across pages resolves to the first
+  copy, which is as far as a bare selection string can go.
 - Model weights download from the Hugging Face Hub on first use and are stored
   in the browser's Cache API. Nothing is re-downloaded afterwards, and no text
   or audio ever leaves your machine. Kokoro's speakers are separate 0.5 MB style

@@ -44,8 +44,10 @@ the room you are actually sitting in.
 
 </div>
 
-Select any text, right-click, choose **Read aloud**. Or hand it the whole
-document and go make coffee. There are two voices:
+Select any text, right-click, choose **Read aloud**. Pick **Start from here**
+instead and it carries on from that spot to the end of the document — handy for
+picking up where you stopped. Or hand it the whole thing and go make coffee.
+There are two voices:
 
 | | Sounds like | Download | Runs |
 |---|---|---|---|
@@ -107,6 +109,10 @@ every network request is listed in [PRIVACY.md](PRIVACY.md).
 For read aloud, choose **Robot** or **Fluent** in the popup — Fluent downloads
 once, with a progress bar, and is cached forever after. Then select text in any
 PDF and right-click, or use **Read this PDF** to play the whole document.
+
+> **Starting from a selection?** Select a few words rather than one short one.
+> A single common word can only be matched to its first occurrence in the
+> document, which may not be the one you highlighted.
 
 > **Reading PDFs saved on your computer?** Open the extension's details page and
 > switch on **Allow access to file URLs**.

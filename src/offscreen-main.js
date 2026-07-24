@@ -296,7 +296,94 @@ async function extractPageText(pdf, pageNumber) {
     return text.replace(/\s+/g, ' ').trim();
 }
 
-async function readPdf(url, fromPage, voice) {
+// A page fetched over HTTP can be anything; pdf.js would reject an HTML page
+// with "Invalid PDF structure", which reads like a bug in the extension.
+function looksLikePdf(data) {
+    const head = new Uint8Array(data, 0, Math.min(1024, data.byteLength));
+    return String.fromCharCode(...head).includes('%PDF-');
+}
+
+// --------------------------------------------------------- start from here
+
+// Chromium hands a context-menu selection over as bare text: no page number,
+// no offsets, and truncated at about a kilobyte. Finding where it sits in the
+// document therefore means searching the extracted text for it, and the two
+// do not agree character for character - the viewer's copy resolves
+// ligatures, joins hyphenated line breaks and spaces things differently.
+//
+// So matching runs on a folded form: NFKD-decomposed, lowercased, and reduced
+// to letters and digits, which drops the punctuation, accents and whitespace
+// the two sides disagree about. `map` carries each folded character back to
+// its index in the original string, so a hit converts straight into an offset
+// to start reading from.
+function fold(text) {
+    let folded = '';
+    const map = [];
+    let index = 0;
+    for (const point of text) {
+        for (const ch of point.normalize('NFKD').toLowerCase()) {
+            if (/[\p{L}\p{N}]/u.test(ch)) {
+                folded += ch;
+                map.push(index);
+            }
+        }
+        index += point.length;
+    }
+    return { folded, map };
+}
+
+// Folding drops the characters between words, so two adjacent folded
+// characters that came from non-adjacent source indices had something
+// dropped between them - a word boundary. Preferring those keeps a short
+// selection like "The" from landing inside "theory".
+function findFolded(hay, map, needle, atWordStart) {
+    let at = hay.indexOf(needle);
+    while (at >= 0) {
+        if (!atWordStart || at === 0 || map[at] - map[at - 1] > 1) return at;
+        at = hay.indexOf(needle, at + 1);
+    }
+    return -1;
+}
+
+// Prefix lengths to fall back through. A selection that runs past a page
+// break, or over text pdf.js extracts in a different order, only matches on
+// its opening words - but the shorter the prefix the more places it can
+// match, so the longest one that hits anywhere wins.
+const MATCH_PREFIXES = [96, 48, 24, 12];
+
+async function locateText(pageText, total, selection, mySession, voice) {
+    const target = fold(selection).folded;
+    if (!target) return null;
+    const lengths = [...new Set([target.length, ...MATCH_PREFIXES])]
+        .filter((n) => n <= target.length && n >= Math.min(target.length, 12))
+        .sort((a, b) => b - a);
+
+    const folded = new Map(); // page -> {folded, map}, built at most once
+    for (const length of lengths) {
+        const needle = target.slice(0, length);
+        for (const atWordStart of [true, false]) {
+            for (let p = 1; p <= total; p++) {
+                if (mySession.aborted) return null;
+                if (!folded.has(p)) {
+                    setStatus({
+                        phase: 'loading',
+                        voice,
+                        detail: `finding your place · page ${p} of ${total}`
+                    });
+                    folded.set(p, fold(await pageText(p)));
+                }
+                const page = folded.get(p);
+                const at = findFolded(page.folded, page.map, needle, atWordStart);
+                if (at >= 0) return { page: p, offset: page.map[at] };
+            }
+        }
+    }
+    return null;
+}
+
+// fromText starts the reading at a selection instead of at a page; fromPage
+// is used when there is none. Everything after the start point is read.
+async function readPdf(url, { fromPage, fromText } = {}, voice) {
     stopPlayback();
     const mySession = (session = new PlaybackSession(settings.volume / 100));
     try {
@@ -307,9 +394,37 @@ async function readPdf(url, fromPage, voice) {
         const response = await fetch(url);
         if (!response.ok) throw new Error(`Could not fetch the PDF (${response.status}).`);
         const data = await response.arrayBuffer();
+        if (!looksLikePdf(data)) {
+            throw new Error('This page is not a PDF, so there is nothing to read through.');
+        }
         const pdf = await pdfjs.getDocument({ data, isEvalSupported: false }).promise;
         const total = pdf.numPages;
-        const start = Math.min(Math.max(1, Number(fromPage) || 1), total);
+
+        // Searching for a selection walks pages that the reading loop then
+        // wants again, so extraction is memoized. Pages are dropped as they
+        // are spoken, so a long document never holds its whole text at once.
+        const extracted = new Map();
+        const pageText = async (p) => {
+            if (!extracted.has(p)) extracted.set(p, await extractPageText(pdf, p));
+            return extracted.get(p);
+        };
+
+        let start = Math.min(Math.max(1, Number(fromPage) || 1), total);
+        let offset = 0;
+        if (fromText) {
+            const found = await locateText(pageText, total, fromText, mySession, voice);
+            if (mySession.aborted) return;
+            if (!found) {
+                throw new Error(
+                    'Could not find that selection in the PDF text, so there is no place ' +
+                    'to start from. Try selecting a few words that sit together on one page.'
+                );
+            }
+            start = found.page;
+            offset = found.offset;
+            // Pages the search read past are never spoken.
+            for (const p of extracted.keys()) if (p < start) extracted.delete(p);
+        }
 
         // A PDF with no extractable text (a scan, or a start page past the end
         // of the text) would otherwise run this loop to completion in silence
@@ -318,7 +433,11 @@ async function readPdf(url, fromPage, voice) {
 
         for (let p = start; p <= total; p++) {
             if (mySession.aborted) return;
-            const text = await extractPageText(pdf, p);
+            let text = await pageText(p);
+            extracted.delete(p);
+            // The selection is the start point, so the page it sits on is
+            // read from it rather than from the top.
+            if (p === start && offset > 0) text = text.slice(offset).trim();
             if (!text) continue;
             readAnything = true;
             if (robot) {
@@ -381,7 +500,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             speak(message.text, message.voice);
             break;
         case 'read-pdf':
-            readPdf(message.url, message.fromPage, message.voice);
+            readPdf(
+                message.url,
+                { fromPage: message.fromPage, fromText: message.fromText },
+                message.voice
+            );
             break;
         case 'preload':
             (async () => {

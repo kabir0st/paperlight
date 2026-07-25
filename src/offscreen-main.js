@@ -492,8 +492,8 @@ function fold(text) {
 // carry the selection's exact case in the original text. Folding lowercases
 // everything, so a selection like "Recurrent" (a paragraph opener) would
 // otherwise resolve to a mid-sentence "recurrent" on an earlier page.
-function findFolded(hay, map, needle, atWordStart, ori, caseChar) {
-    let at = hay.indexOf(needle);
+function findFolded(hay, map, needle, atWordStart, ori, caseChar, from = 0) {
+    let at = hay.indexOf(needle, from);
     while (at >= 0) {
         if (!atWordStart || at === 0 || map[at] - map[at - 1] > 1) {
             if (caseChar == null || ori[map[at]] === caseChar) return at;
@@ -525,6 +525,14 @@ async function locateText(pageText, total, selection, mySession, voice) {
         firstChar && firstChar.toLowerCase() !== firstChar.toUpperCase();
     const casePasses = caseMatters ? [firstChar, null] : [null];
 
+    // The document's very first words are the title - which is where a
+    // short selection of a recurring word false-positives ("Attention" in
+    // this very paper hits the title, and the reading starts on the author
+    // e-mails). Nobody selects the title's opening word to start from it,
+    // so a match at the absolute start of page 1 is held back as a last
+    // resort; it still wins when the title genuinely is the only match.
+    let documentStart = null;
+
     const folded = new Map(); // page -> {ori, folded, map}, built at most once
     for (const length of lengths) {
         const needle = target.slice(0, length);
@@ -542,13 +550,23 @@ async function locateText(pageText, total, selection, mySession, voice) {
                         folded.set(p, { ori: text, ...fold(text) });
                     }
                     const page = folded.get(p);
-                    const at = findFolded(
+                    let at = findFolded(
                         page.folded, page.map, needle, atWordStart, page.ori, caseChar
                     );
+                    if (p === 1 && at === 0) {
+                        documentStart ??= { page: p, offset: page.map[at] };
+                        at = findFolded(
+                            page.folded, page.map, needle, atWordStart, page.ori, caseChar, 1
+                        );
+                    }
                     if (at >= 0) return { page: p, offset: page.map[at] };
                 }
             }
         }
+        // Nothing but the document start matched this much of the
+        // selection: that full-length hit beats degrading to a shorter
+        // prefix, which could land on a weaker match mid-document.
+        if (documentStart) return documentStart;
     }
     return null;
 }
@@ -586,6 +604,13 @@ async function readPdf(url, { fromPage, fromText } = {}, voice) {
         let offset = 0;
         if (fromText) {
             const found = await locateText(pageText, total, fromText, mySession, voice);
+            // Breadcrumb for "it started in the wrong place" reports: shows
+            // exactly what Chrome handed over (it can deliver less than the
+            // visible highlight) and where it resolved.
+            console.debug(
+                'Paperlight start-from:', JSON.stringify(fromText), '->',
+                found ? `page ${found.page}, offset ${found.offset}` : 'no match'
+            );
             if (mySession.aborted) return;
             if (!found) {
                 throw new Error(

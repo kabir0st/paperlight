@@ -16,6 +16,11 @@ const DEFAULTS = {
 const MENU_ID = 'gentle-read-aloud';
 const MENU_FROM_ID = 'gentle-read-from-here';
 const MENU_PDF_ID = 'gentle-read-pdf';
+
+// "Start from here" locates the selection by searching the extracted text,
+// and a selection this short cannot be located reliably - one or two words
+// almost always appear earlier in the document too.
+const MIN_FROM_HERE_WORDS = 5;
 const TEST_SENTENCE =
     'This is your Paperlight reading voice. Select text in a PDF, ' +
     'right click, and choose Read aloud.';
@@ -99,8 +104,31 @@ chrome.runtime.onInstalled.addListener((details) => {
 chrome.contextMenus.onClicked.addListener((info, tab) => {
     if (info.menuItemId === MENU_ID && info.selectionText) {
         speak(info.selectionText, tab?.id);
-    } else if (info.menuItemId === MENU_FROM_ID && info.selectionText && info.pageUrl) {
-        readPdf(info.pageUrl, { fromText: info.selectionText }, tab?.id);
+    } else if (info.menuItemId === MENU_FROM_ID && info.pageUrl) {
+        const words = (info.selectionText || '').trim().split(/\s+/).filter(Boolean);
+        if (words.length >= MIN_FROM_HERE_WORDS) {
+            readPdf(info.pageUrl, { fromText: info.selectionText }, tab?.id);
+        } else {
+            // Too short to locate reliably - and Chrome sometimes passes
+            // along less than was highlighted. Say what arrived rather than
+            // guessing and starting the reading in the wrong place, or
+            // doing nothing, which reads as a dead menu item.
+            const got =
+                words.length === 0
+                    ? 'Chrome did not pass the selected text along.'
+                    : `Only ${words.length} word${words.length === 1 ? '' : 's'} came through.`;
+            setTtsTab(tab?.id).then(() =>
+                setStatus(
+                    {
+                        phase: 'error',
+                        error:
+                            `${got} Select at least ${MIN_FROM_HERE_WORDS} words ` +
+                            'so your place can be found, and try again.'
+                    },
+                    { paused: false }
+                )
+            );
+        }
     } else if (info.menuItemId === MENU_PDF_ID && info.pageUrl) {
         readPdf(info.pageUrl, {}, tab?.id);
     }

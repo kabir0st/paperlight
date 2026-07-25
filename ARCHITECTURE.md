@@ -108,7 +108,10 @@ which the viewer is composited.
 - **Start from here** reads from a selection to the end of the document.
   Chromium hands a context-menu selection over as bare text — no page number,
   no offsets, truncated at about a kilobyte — so the offscreen document has to
-  search the extracted text for it. The two sides do not agree character for
+  search the extracted text for it. Selections under 5 words are refused with
+  guidance instead of matched: that little text almost always appears earlier
+  in the document too, and starting in the wrong place is worse than asking
+  for a longer selection. The two sides do not agree character for
   character (the viewer's copy resolves ligatures, joins hyphenated line
   breaks, and spaces things differently), so matching runs on a folded form:
   NFKD-decomposed, lowercased, reduced to letters and digits, with an index
@@ -117,8 +120,13 @@ which the viewer is composited.
   inside "theory", and a match whose first character carries the selection's
   exact case outranks one that only matches folded — selecting the paragraph
   opener "Recurrent" must not resolve to a mid-sentence "recurrent" on an
-  earlier page. Text repeated with identical case across pages still resolves
-  to the first copy, which is as far as a bare selection string can go.
+  earlier page. A match at the document's very first words (the title zone) is
+  held back as a last resort within its match length: Chrome sometimes hands
+  over less of the selection than was highlighted, and a lone "Attention"
+  must not start the reading at this very paper's title. Text repeated with
+  identical case across pages still resolves to the first copy, which is as
+  far as a bare selection string can go — the offscreen console logs the
+  received selection and where it resolved for diagnosing reports.
 - Model weights download from the Hugging Face Hub on first use and are stored
   in the browser's Cache API. Nothing is re-downloaded afterwards, and no text
   or audio ever leaves your machine. Kokoro's speakers are separate 0.5 MB style
